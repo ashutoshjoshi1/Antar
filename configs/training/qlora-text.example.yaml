@@ -1,0 +1,19 @@
+# OptimizationJob (antar/optimization/job.py).
+# This validates today; executing it is not implemented yet.
+name: qlora-then-quantize
+model:
+  id: example-org/example-llm
+  revision: main
+modality: text
+task: chat
+techniques:
+  - technique: qlora
+    params: { rank: 16, alpha: 32, target_modules: [q_proj, v_proj] }
+  - technique: quantization
+    params: { format: gguf, scheme: Q4_K_M }
+constraints:
+  max_memory_gb: 8
+  max_quality_drop: 0.05
+execution_backend: amd_cloud
+target_backend: lemonade
+seed: 42

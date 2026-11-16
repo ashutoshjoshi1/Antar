@@ -1,0 +1,14 @@
+# AmdCloudProfile (antar/backends/amd_cloud/config.py).
+# Declare what your instance actually has — Antar does not assume a GPU model,
+# storage service, or public endpoint. Save real profiles as *.local.yaml
+# (git-ignored) or under `amd_cloud:` in configs/antar.yaml.
+name: example-amd-host
+ssh_host: gpu.example.com
+ssh_user: ubuntu
+ssh_port: 22
+ssh_key_path: ~/.ssh/id_ed25519
+remote_workdir: ~/antar
+rocm_version: "6.4"   # the version installed on YOUR host
+gpus:
+  - name: AMD Instinct GPU   # replace with the device your instance reports
+    count: 1

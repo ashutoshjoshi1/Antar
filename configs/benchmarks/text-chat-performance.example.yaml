@@ -1,0 +1,14 @@
+# BenchmarkConfig (antar/benchmarking/config.py).
+# A performance-only benchmark needs no dataset. Quality metrics require a
+# `dataset:` block with name, version, and license.
+name: text-chat-performance
+model:
+  id: example-org/example-llm
+  revision: main
+backend: lemonade
+modality: text
+task: chat
+metrics: [time_to_first_token_ms, tokens_per_second, peak_memory_bytes]
+warmup_runs: 1
+measured_runs: 5
+seed: 42

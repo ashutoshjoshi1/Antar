@@ -1,0 +1,26 @@
+# Antar configuration. Copy to configs/antar.yaml (git-ignored) and edit.
+# Every key can also be set by environment variable, e.g.
+#   ANTAR_LEMONADE__BASE_URL=http://localhost:13305/v1
+# Secrets (ANTAR_LEMONADE__API_KEY) belong in the environment or .env, not here.
+
+enable_mock_backend: true
+
+lemonade:
+  # Lemonade's documented default. Include the /v1 prefix.
+  base_url: http://localhost:13305/v1
+  timeout_seconds: 3.0
+
+storage:
+  models_dir: data/models
+  artifacts_dir: data/artifacts
+  training_dir: data/training
+  benchmarks_dir: data/benchmarks
+  experiments_dir: data/experiments
+
+# Optional. Describes a remote AMD GPU host you have provisioned yourself.
+# Antar validates this profile but does not connect to it yet.
+# See configs/hardware/amd-cloud.example.yaml and docs/installation/amd-cloud.md.
+# amd_cloud:
+#   name: my-amd-host
+#   ssh_host: gpu.example.com
+#   ssh_user: ubuntu

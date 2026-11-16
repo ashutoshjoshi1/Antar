@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+apps/web/dist/
+apps/web/coverage/
+*.tsbuildinfo
+
+# Secrets and local configuration — never commit these
+.env
+.env.*
+!.env.example
+configs/antar.yaml
+configs/**/*.local.yaml
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Runtime data: models, artifacts, experiment outputs
+data/
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.bin
+*.ckpt
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.codegraph/

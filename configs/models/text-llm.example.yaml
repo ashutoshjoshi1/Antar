@@ -1,0 +1,10 @@
+# ModelSpec (antar/models/spec.py) — declaring a model by hand.
+# Normally models are discovered from backends; this shows the schema.
+id: example-org/example-llm
+name: Example LLM
+backend: lemonade
+modalities: [text]
+tasks: [chat]
+revision: main          # pin a commit hash for reproducible experiments
+checkpoint: example-org/example-llm-GGUF
+runtime: llamacpp

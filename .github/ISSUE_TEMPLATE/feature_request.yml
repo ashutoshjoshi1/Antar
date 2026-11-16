@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a capability, backend, or optimization technique
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: dropdown
+    id: modality
+    attributes:
+      label: Modality
+      multiple: true
+      options: [Text, Vision, Speech, Image, Video, Not modality-specific]
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: For new backends or techniques, link the upstream documentation that shows it is supported.
+  - type: textarea
+    id: evaluation
+    attributes:
+      label: How would we measure that it works?
+      description: Antar does not ship unmeasured claims. Which metric, dataset, and hardware would show this?

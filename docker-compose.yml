@@ -1,0 +1,38 @@
+# Optional. Local development does not need Docker — see docs/installation/local.md.
+#
+#   docker compose up            # API on :8080, dashboard on :5173
+#
+# Lemonade runs on the host, not in a container. On Docker Desktop the API
+# reaches it through host.docker.internal.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      ANTAR_LEMONADE__BASE_URL: ${ANTAR_LEMONADE__BASE_URL:-http://host.docker.internal:13305/v1}
+      ANTAR_LEMONADE__API_KEY: ${ANTAR_LEMONADE__API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - antar-data:/app/data
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0"
+    environment:
+      ANTAR_API_URL: http://api:8080
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./apps/web:/app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  antar-data:
+  web-node-modules:

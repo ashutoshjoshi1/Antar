@@ -1,0 +1,88 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-sans-devanagari/devanagari-500.css";
+@import "tailwindcss";
+
+/*
+  Antar's palette is built on two poles: cloud (cool periwinkle) and local
+  (warm lemon). "Antar" is the distance between them, so those two hues are
+  reserved for where something runs. Status has its own three colours.
+*/
+@theme {
+  --color-ground: #151922;
+  --color-surface: #1c212c;
+  --color-raised: #262c39;
+  --color-line: #333b4c;
+  --color-ink: #ebe9e3;
+  --color-muted: #a0a7b6;
+  --color-faint: #6f778a;
+
+  --color-cloud: #8fa8ff;
+  --color-local: #f2d45c;
+
+  --color-ok: #71d09a;
+  --color-warn: #f0a55c;
+  --color-down: #f07a76;
+
+  --font-sans: "IBM Plex Sans", "IBM Plex Sans Devanagari", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --text-2xs: 0.6875rem;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-ground);
+  }
+
+  body {
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss02", "zero";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-local);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-local) 35%, transparent);
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one piece of ambient motion: a signal travelling the cloud-local span. */
+@keyframes span-signal {
+  from {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  12%,
+  88% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(var(--span-travel, 100%));
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
