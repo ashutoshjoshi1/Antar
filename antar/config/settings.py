@@ -22,6 +22,7 @@ from pydantic_settings import (
 
 from antar.backends.amd_cloud.config import AmdCloudProfile
 from antar.backends.lemonade.client import DEFAULT_LEMONADE_BASE_URL
+from antar.inference.images import DEFAULT_MAX_IMAGE_BYTES
 
 CONFIG_FILE_ENV = "ANTAR_CONFIG_FILE"
 DEFAULT_CONFIG_FILE = "configs/antar.yaml"
@@ -37,7 +38,13 @@ class LemonadeSettings(BaseModel):
     api_key: SecretStr | None = Field(
         default=None, description="Matches the server's LEMONADE_API_KEY, if one is set."
     )
-    timeout_seconds: float = Field(default=3.0, gt=0, le=60)
+    timeout_seconds: float = Field(
+        default=3.0, gt=0, le=60, description="Connecting, and short calls such as health."
+    )
+    generation_timeout_seconds: float = Field(
+        default=300.0, gt=0, description="Longest silence tolerated while a model generates."
+    )
+    load_timeout_seconds: float = Field(default=600.0, gt=0)
 
     @field_validator("base_url")
     @classmethod
@@ -71,6 +78,9 @@ class Settings(BaseSettings):
 
     enable_mock_backend: bool = True
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    max_image_bytes: int = Field(
+        default=DEFAULT_MAX_IMAGE_BYTES, gt=0, description="Upload limit per image."
+    )
     lemonade: LemonadeSettings = LemonadeSettings()
     amd_cloud: AmdCloudProfile | None = None
     storage: StorageSettings = StorageSettings()

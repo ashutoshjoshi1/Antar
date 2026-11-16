@@ -26,6 +26,8 @@ the dashboard.
 |---|---|
 | A new inference engine | `antar/backends/<name>/`, registered in `backends/registry.py` |
 | A metric | `antar/modalities/catalog.py` |
+| A benchmark workload | `antar/benchmarking/workloads.py` (bump `version` when prompts change) |
+| An inference option | `antar/inference/types.py`, after confirming the backend documents it |
 | A technique or its applicability | `antar/optimization/job.py` |
 | A setting | `antar/config/settings.py`, `.env.example`, `configs/antar.example.yaml` |
 | An endpoint | `apps/api/antar_api/routes.py` + `schemas.py`, then `apps/web/src/lib/types.ts` |
@@ -46,11 +48,15 @@ there is the part most contributions touch.
 - Fixtures that look like upstream responses should be trimmed from the upstream
   documentation, with the source noted.
 
-Against a real Lemonade server, check by hand:
+Live tests run real inference against your Lemonade server. They are excluded by default,
+skip themselves when no suitable model is downloaded, and never download anything:
 
 ```bash
-uv run antar backends && uv run antar models | head
+uv run pytest -m lemonade_live -v
 ```
+
+Say which live tests you ran, and on what hardware, in the pull request. A skipped live
+test is not a passed one.
 
 ## Working with external APIs
 

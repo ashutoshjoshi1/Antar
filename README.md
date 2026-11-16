@@ -6,10 +6,11 @@ Antar is an open-source platform for optimizing, benchmarking, and deploying mul
 models across the distance between cloud GPUs and the device in front of you. *Antar* is
 Sanskrit for "difference" or "the space between" — the gap this project exists to close.
 
-> **Status: pre-alpha foundation.** The API, dashboard, hardware detection, Lemonade model
-> discovery, and a mock backend work today. **No optimization, benchmarking, or deployment
-> runs yet.** See [Current implementation status](#current-implementation-status) for exactly
-> what is and is not built.
+> **Status: pre-alpha.** Real local inference works today: text chat with streaming, image
+> understanding, and repeatable performance benchmarks, all through Lemonade. **No
+> optimization, quality evaluation, cloud execution, or deployment exists yet.** See
+> [Current implementation status](#current-implementation-status) for exactly what is and is
+> not built.
 
 ## The problem
 
@@ -46,6 +47,8 @@ flowchart LR
     subgraph Core["antar (Python library)"]
         HW["hardware<br/>detection + profiles"]
         INV["models<br/>inventory"]
+        INF["inference<br/>chat + streaming + images"]
+        BEN["benchmarking<br/>runner + reports"]
         CAT["modalities<br/>tasks + metrics"]
         OPT["optimization<br/>job spec · planned executors"]
         EXP["orchestration<br/>experiment records"]
@@ -63,6 +66,8 @@ flowchart LR
     CLI --> Core
     API --> Core
     INV --> REG
+    INF --> REG
+    BEN --> REG
     OPT -.-> REG
     DEP -.-> REG
     REG --> LEM
@@ -91,18 +96,21 @@ cloud access.
 
 | Capability | State |
 |---|---|
-| Five modalities (text, vision, speech, image, video) with per-modality tasks and metrics | Catalog defined |
-| Explicit capability discovery per backend, including what is *not* supported | Working |
+| Lemonade connectivity, model discovery, load, and confirmed download | Working |
+| Text chat with streaming, cancellation, and separate reasoning output | Working |
+| Image understanding with a vision-language model | Working |
+| Per-request metrics from the backend's own timings | Working |
+| Benchmark runner: three text workloads and a basic vision workload | Working |
+| Benchmark reports with JSON and CSV export, manual review, and comparison checks | Working |
+| Live telemetry, with unavailable measurements labelled | Working |
 | Local hardware detection | Working (GPU enumeration: macOS only) |
-| Lemonade connectivity and model discovery | Working |
+| Explicit capability discovery per backend, including what is *not* supported | Working |
 | Mock backend for offline development | Working (text only, clearly simulated) |
-| Typed specs: model, hardware, optimization job, benchmark, evaluation, deployment | Defined and validated |
-| Reproducible experiment record format with filesystem store | Working |
-| Inference through Lemonade | Not built |
+| Quality evaluators (accuracy, WER, and so on) | Not built |
 | Optimization executors (LoRA/QLoRA, distillation, quantization) | Not built |
-| Benchmark runner and evaluators | Not built |
 | AMD cloud remote execution | Not built (config validation only) |
-| Local/cloud routing | Not built |
+| Local/cloud routing and deployment | Not built |
+| Speech, image generation, video | Not built (interfaces only) |
 
 ## Installation
 
@@ -116,11 +124,12 @@ uv sync                          # backend (no PyTorch, no GPU stack)
 cd apps/web && pnpm install      # dashboard
 ```
 
-Lemonade is optional but recommended — install it from
-[lemonade-server.ai](https://lemonade-server.ai). Antar looks for it at
-`http://localhost:13305/v1` and reports it as unavailable, without failing, if it is not
-running. Full instructions: [local setup](docs/installation/local.md),
-[AMD cloud setup](docs/installation/amd-cloud.md).
+Inference needs [Lemonade](https://lemonade-server.ai) running locally with at least one
+model downloaded. Antar looks for it at `http://localhost:13305/v1`; without it the
+dashboard still runs and says plainly that the server is unreachable. Antar never downloads
+a model unless you confirm it. Full instructions:
+[local inference walkthrough](docs/phase1-local-inference.md),
+[local setup](docs/installation/local.md), [AMD cloud setup](docs/installation/amd-cloud.md).
 
 ## Quick start
 
@@ -139,10 +148,14 @@ uv run antar system                       # detected hardware, as JSON
 uv run antar backends                     # is Lemonade reachable?
 uv run antar models                       # models reported by reachable backends
 uv run antar mock-generate "hello"        # simulated output from the mock backend
-curl localhost:8080/api/v1/capabilities   # what each backend supports
+
+# Real inference through the API (the model must already be downloaded in Lemonade)
+curl -N localhost:8080/api/v1/inference/chat/stream -H 'Content-Type: application/json' \
+  -d '{"model": "Qwen3-1.7B-GGUF", "messages": [{"role": "user", "content": "Say hello."}]}'
 ```
 
-API reference is served at `http://localhost:8080/docs`.
+Then open the dashboard: **Playground** for text, **Vision** for images, **Benchmarks** to
+measure a model. API reference: [docs/api.md](docs/api.md), or `http://localhost:8080/docs`.
 
 ## Current implementation status
 
@@ -152,26 +165,31 @@ unfinished as "Not built yet".
 
 **Works today**
 
-- `GET /health`, `/api/v1/system`, `/api/v1/backends`, `/api/v1/models`,
-  `/api/v1/capabilities`, `/api/v1/settings`, `/api/v1/experiments`
-- Dashboard pages backed by live API data: Overview, Models, Hardware, Settings
-  (Benchmarks and Deployments read live data too, but have nothing to show yet)
-- Lemonade adapter verified against a real Lemonade 2026.46.2 server on macOS
-- 76 backend tests and 23 frontend tests; ruff, mypy (strict), ESLint, and `tsc` in CI
+- Text and image-understanding chat through Lemonade, streamed, cancellable, with the
+  measurements Lemonade reports for each response
+- Model explorer: what is downloaded and loaded, with load, unload, and confirmed download
+- Benchmark runner with four built-in workloads, cold-start measurement, saved reports,
+  JSON/CSV export, manual review of answers, and a check for unfair comparisons
+- System page with live telemetry
+- Verified against a real Lemonade 2026.46.2 server on an Apple M3 Pro, including opt-in
+  live tests (`uv run pytest -m lemonade_live`)
+- 204 backend tests and 52 frontend tests; ruff, mypy (strict), ESLint, and `tsc` in CI
 
 **Does not exist yet**
 
-- Any real inference, optimization, benchmark, or deployment. The Optimization page builds
-  and validates a job specification only.
-- Any measured result. There are no benchmark numbers in this repository, and none will be
-  added that were not produced by a recorded experiment.
-- Video support in any backend. Lemonade documents no video endpoint.
+- Any optimization, quality evaluation, cloud execution, or deployment. The Optimization
+  page builds and validates a job specification only.
+- Quality scores. Benchmarks measure speed and reliability; whether an answer is *good* is
+  judged by a person. There are no benchmark numbers in this repository.
+- Per-request memory, GPU utilization, or power figures. Where the operating system does
+  not expose them, Antar says "unavailable".
+- Speech, image generation, and video. Lemonade documents no video endpoint at all.
 
 ## Roadmap
 
-See [docs/ROADMAP.md](docs/ROADMAP.md). The next milestone is the first real vertical
-slice: text chat inference through Lemonade plus a performance benchmark that writes a
-genuine experiment record.
+See [docs/ROADMAP.md](docs/ROADMAP.md). The next milestone is the first optimization: a
+quality evaluator on a pinned dataset, then a measured comparison of quantization levels of
+one model.
 
 ## Contributing
 

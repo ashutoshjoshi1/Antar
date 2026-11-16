@@ -6,44 +6,64 @@ from pydantic import ValidationError
 
 from antar.backends.amd_cloud.backend import AmdCloudBackend
 from antar.backends.amd_cloud.config import AmdCloudProfile
-from antar.backends.base import Availability, SupportLevel, TextGenerationRequest
+from antar.backends.base import Availability, SupportLevel
 from antar.backends.mock.backend import MockBackend
 from antar.backends.registry import build_backends
 from antar.config.settings import Settings
-from antar.core.errors import CapabilityNotSupportedError
+from antar.core.errors import CapabilityNotSupportedError, ModelNotFoundError
 from antar.core.types import Modality
+from antar.inference.types import ChatMessage, ChatRequest, GenerationSettings
 from antar.models.inventory import collect_inventory
 
-_REQUEST = TextGenerationRequest(model="mock/echo-small", prompt="hello there", seed=1)
+
+def _request(model: str = "mock/echo-small", seed: int = 1, max_tokens: int = 128) -> ChatRequest:
+    return ChatRequest(
+        model=model,
+        messages=(ChatMessage(role="user", content="hello there"),),
+        settings=GenerationSettings(seed=seed, max_tokens=max_tokens),
+    )
 
 
-def test_mock_generation_is_deterministic_and_flagged_simulated() -> None:
+def test_mock_chat_is_deterministic_and_flagged_simulated() -> None:
     backend = MockBackend()
 
-    first = asyncio.run(backend.generate_text(_REQUEST))
-    second = asyncio.run(backend.generate_text(_REQUEST))
+    first = asyncio.run(backend.chat(_request()))
+    second = asyncio.run(backend.chat(_request()))
 
-    assert first.text == second.text
+    assert first.content == second.content
     assert first.simulated is True
-    assert first.prompt_tokens == 2
-    assert first.completion_tokens == len(first.text.split())
+    assert first.metrics.tokens_per_second is None
 
 
-def test_mock_generation_varies_with_seed_and_respects_max_tokens() -> None:
+def test_mock_chat_varies_with_seed_and_respects_max_tokens() -> None:
     backend = MockBackend()
 
-    other = asyncio.run(backend.generate_text(_REQUEST.model_copy(update={"seed": 2})))
-    short = asyncio.run(backend.generate_text(_REQUEST.model_copy(update={"max_tokens": 2})))
+    other = asyncio.run(backend.chat(_request(seed=2)))
+    short = asyncio.run(backend.chat(_request(max_tokens=2)))
 
-    assert other.text != asyncio.run(backend.generate_text(_REQUEST)).text
-    assert short.completion_tokens <= 2
+    assert other.content != asyncio.run(backend.chat(_request())).content
+    assert len(short.content.split()) <= 2
+
+
+def test_mock_stream_ends_with_the_same_result_as_chat() -> None:
+    async def collect() -> tuple[str, str]:
+        backend = MockBackend()
+        streamed, final = "", ""
+        async for event in backend.chat_stream(_request()):
+            if event.type == "delta":
+                streamed += event.content
+            else:
+                final = event.result.content
+        return streamed, final
+
+    streamed, final = asyncio.run(collect())
+
+    assert streamed == final != ""
 
 
 def test_mock_rejects_unknown_model() -> None:
-    request = _REQUEST.model_copy(update={"model": "not-a-model"})
-
-    with pytest.raises(CapabilityNotSupportedError):
-        asyncio.run(MockBackend().generate_text(request))
+    with pytest.raises(ModelNotFoundError):
+        asyncio.run(MockBackend().chat(_request(model="not-a-model")))
 
 
 def test_mock_supports_only_text_and_marks_models_simulated() -> None:
@@ -77,7 +97,7 @@ def test_amd_cloud_with_profile_reports_not_implemented_and_refuses_inference() 
     assert status.endpoint == "ssh://ubuntu@gpu.example.com:22"
     assert all(c.support is SupportLevel.PLANNED for c in backend.capabilities())
     with pytest.raises(CapabilityNotSupportedError):
-        asyncio.run(backend.generate_text(_REQUEST))
+        asyncio.run(backend.chat(_request()))
 
 
 @pytest.mark.parametrize(
@@ -118,8 +138,8 @@ def test_inventory_merges_backends_and_reports_each_source(
     inventory = asyncio.run(collect_inventory(backends))
 
     counts = {source.backend: source.model_count for source in inventory.sources}
-    assert counts == {"lemonade": 4, "amd_cloud": 0, "mock": 2}
-    assert len(inventory.models) == 6
+    assert counts == {"lemonade": 5, "amd_cloud": 0, "mock": 2}
+    assert len(inventory.models) == 7
 
 
 def test_inventory_survives_an_unreachable_backend(

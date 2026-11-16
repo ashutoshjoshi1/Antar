@@ -4,20 +4,39 @@ Run with: ``uv run uvicorn antar_api.main:app --reload`` (or ``uv run antar serv
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 
 from antar import __version__
 from antar.backends.base import RuntimeBackend
 from antar.backends.registry import build_backends
+from antar.benchmarking.manager import BenchmarkManager
+from antar.benchmarking.store import BenchmarkStore
 from antar.config.settings import Settings, get_settings
 from antar.core.errors import AntarError
-from antar_api.routes import health_router, router
+from antar.inference.service import InferenceService
+from antar.inference.types import MAX_IMAGES_PER_REQUEST
+from antar_api import routes, routes_benchmarks, routes_inference
+from antar_api.errors import GENERIC_MESSAGE, STATUS_BY_ERROR
 
 logger = logging.getLogger(__name__)
+
+# JSON overhead allowed on top of the base64 images a request may carry.
+_BODY_OVERHEAD_BYTES = 2 * 1024 * 1024
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    manager: BenchmarkManager = app.state.benchmarks
+    if manager.cancel():
+        await manager.wait()
 
 
 def create_app(
@@ -28,28 +47,50 @@ def create_app(
         title="Antar API",
         version=__version__,
         description="Multimodal AI optimization, benchmarking, and cloud-to-edge deployment.",
+        lifespan=_lifespan,
     )
+    runtime = tuple(backends) if backends is not None else build_backends(resolved)
+    store = BenchmarkStore(resolved.storage.benchmarks_dir)
     app.state.settings = resolved
-    app.state.backends = tuple(backends) if backends is not None else build_backends(resolved)
+    app.state.backends = runtime
+    app.state.inference = InferenceService(runtime, max_image_bytes=resolved.max_image_bytes)
+    app.state.benchmark_store = store
+    app.state.benchmarks = BenchmarkManager(runtime, store)
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved.cors_origins),
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["*"],
     )
 
+    # Base64 is 4/3 the size of the image it carries.
+    max_body_bytes = (
+        resolved.max_image_bytes * MAX_IMAGES_PER_REQUEST * 4 // 3 + _BODY_OVERHEAD_BYTES
+    )
+
+    @app.middleware("http")
+    async def reject_oversized_bodies(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > max_body_bytes:
+            return JSONResponse(status_code=413, content={"detail": "The request is too large."})
+        return await call_next(request)
+
     @app.exception_handler(AntarError)
     async def handle_antar_error(_: Request, exc: AntarError) -> JSONResponse:
-        # Details may include local paths; keep them in the server log only.
+        status = STATUS_BY_ERROR.get(type(exc))
+        if status is not None:
+            return JSONResponse(status_code=status, content={"detail": str(exc)})
+        # Anything else may include local paths; keep it in the server log only.
         logger.error("Request failed: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "The request failed. See the Antar API log for details."},
-        )
+        return JSONResponse(status_code=500, content={"detail": GENERIC_MESSAGE})
 
-    app.include_router(health_router)
-    app.include_router(router)
+    app.include_router(routes.health_router)
+    app.include_router(routes_inference.router)
+    app.include_router(routes.router)
+    app.include_router(routes_benchmarks.router)
     return app
 
 

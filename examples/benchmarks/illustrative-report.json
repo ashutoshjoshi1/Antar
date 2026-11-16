@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "id": "illustrative-example",
+  "status": "failed",
+  "simulated": true,
+  "notes": "ILLUSTRATIVE EXAMPLE ONLY. Produced by the mock backend to show the report schema. It is not a benchmark result and contains no measurement of any model.",
+  "antar_version": "0.1.0",
+  "git_commit": null,
+  "backend": "mock",
+  "backend_version": null,
+  "model": {
+    "id": "mock/echo-small",
+    "checkpoint": null,
+    "quantization": null,
+    "runtime": "mock",
+    "size_bytes": null
+  },
+  "hardware": {
+    "hostname": "example-host",
+    "os": "ExampleOS",
+    "os_version": "1.0",
+    "architecture": "arm64",
+    "python_version": "3.11.0",
+    "cpu_model": "Example CPU",
+    "cpu_physical_cores": 8,
+    "cpu_logical_cores": 8,
+    "memory_total_bytes": 16000000000,
+    "memory_available_bytes": 8000000000,
+    "disk_total_bytes": 500000000000,
+    "disk_free_bytes": 250000000000,
+    "accelerators": [],
+    "runtimes": []
+  },
+  "config": {
+    "name": "Illustrative example",
+    "model": {
+      "id": "mock/echo-small",
+      "revision": null
+    },
+    "backend": "mock",
+    "workloads": [
+      "general_qa"
+    ],
+    "warmup_runs": 1,
+    "measured_runs": 1,
+    "max_tokens": 32,
+    "temperature": 0.0,
+    "seed": 42,
+    "enable_thinking": false,
+    "load_policy": "keep",
+    "concurrency": 1
+  },
+  "workloads": [
+    {
+      "id": "general_qa",
+      "name": "General question answering",
+      "description": "Short factual and explanatory questions.",
+      "modality": "text",
+      "version": "1",
+      "prompts": [
+        {
+          "id": "photosynthesis",
+          "text": "Explain photosynthesis in two sentences.",
+          "image": null
+        },
+        {
+          "id": "tcp-udp",
+          "text": "What is the difference between TCP and UDP?",
+          "image": null
+        },
+        {
+          "id": "seasons",
+          "text": "Why does the Earth have seasons?",
+          "image": null
+        },
+        {
+          "id": "compound-interest",
+          "text": "What is compound interest? Give a short example.",
+          "image": null
+        }
+      ],
+      "check": null
+    }
+  ],
+  "cold_start": null,
+  "runs": [],
+  "aggregates": [
+    {
+      "workload": "general_qa",
+      "completed": 0,
+      "failed": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": null,
+      "latency_ms_median": null,
+      "latency_ms_p95": null,
+      "tokens_per_second_mean": null,
+      "tokens_per_second_median": null,
+      "first_chunk_ms_median": null,
+      "output_tokens_mean": null,
+      "json_valid_rate": null
+    },
+    {
+      "workload": "all",
+      "completed": 0,
+      "failed": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": null,
+      "latency_ms_median": null,
+      "latency_ms_p95": null,
+      "tokens_per_second_mean": null,
+      "tokens_per_second_median": null,
+      "first_chunk_ms_median": null,
+      "output_tokens_mean": null,
+      "json_valid_rate": null
+    }
+  ],
+  "missing_telemetry": [
+    {
+      "metric": "tokens_per_second",
+      "reason": "The mock backend runs no model."
+    }
+  ],
+  "failure": "Backend 'mock' cannot load models.",
+  "started_at": "2026-11-16T19:37:13.574615Z",
+  "finished_at": "2026-11-16T19:37:13.574757Z"
+}

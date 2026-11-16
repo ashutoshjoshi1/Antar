@@ -25,6 +25,7 @@ from antar_api.schemas import (
     CapabilitiesResponse,
     ExperimentsResponse,
     HealthResponse,
+    InferenceLimitsView,
     LemonadeSettingsView,
     SettingsResponse,
     StorageSettingsView,
@@ -115,6 +116,10 @@ def settings_view(settings: SettingsDep) -> SettingsResponse:
         )
         if profile
         else None,
+        inference=InferenceLimitsView(
+            max_image_bytes=settings.max_image_bytes,
+            generation_timeout_seconds=settings.lemonade.generation_timeout_seconds,
+        ),
         storage=StorageSettingsView(
             models_dir=str(storage.models_dir),
             artifacts_dir=str(storage.artifacts_dir),

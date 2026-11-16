@@ -4,8 +4,10 @@ Antar (अन्तर) is an open-source platform for multimodal AI model optim
 benchmarking, and cloud-to-edge deployment. Local target: AMD Lemonade. Cloud target: AMD
 Instinct GPUs via ROCm. Primary development machine: an Apple Silicon Mac.
 
-The repository is a **pre-alpha foundation**. Read `README.md` → "Current implementation
-status" before assuming anything works.
+The repository is **pre-alpha**. Real local text and vision inference and performance
+benchmarking work (Phase 1). Optimization, quality evaluation, cloud execution, and
+deployment do not. Read `README.md` → "Current implementation status" before assuming
+anything else works.
 
 ## Project rules
 
@@ -35,6 +37,10 @@ These are binding for every session.
 8. **No silent cloud cost.** Do not add code paths that start, resize, or keep alive paid
    resources without an explicit user action. `AmdCloudBackend` must not open network
    connections until remote execution is deliberately implemented.
+   **Never trigger a model download implicitly.** Lemonade's `/load` and
+   `/chat/completions` download missing models on their own; every call path must go
+   through `LemonadeBackend._require_downloaded` first. Downloads happen only through the
+   explicit, confirmed download action.
 9. **Do not push, open PRs, create remotes, or run paid cloud operations without the
    maintainer's explicit authorization** in the current session.
 10. **Keep the architecture modular.** New engines implement `RuntimeBackend` and register
@@ -59,8 +65,9 @@ antar/                 Python library (the product)
   models/              ModelSpec, inventory across backends
   modalities/          Catalog of tasks and metrics per modality
   backends/            RuntimeBackend interface; lemonade/, amd_cloud/, mock/
+  inference/           Chat types, per-request metrics, image validation, service
   optimization/        OptimizationJob + technique applicability (no executors yet)
-  benchmarking/        BenchmarkConfig (no runner yet)
+  benchmarking/        Workloads, runner, report + statistics, store, job manager
   evaluation/          EvaluationResult, DatasetRef
   orchestration/       ExperimentRecord + filesystem store
   deployment/          DeploymentManifest, RoutingPolicy
@@ -86,6 +93,7 @@ make format             # ruff format + autofix
 make check              # everything CI runs (API + web)
 
 uv run pytest tests/unit/test_lemonade.py -k status   # a subset
+uv run pytest -m lemonade_live                        # real Lemonade; needs a downloaded model
 uv run mypy
 cd apps/web && pnpm test && pnpm typecheck && pnpm lint
 ```
@@ -97,6 +105,11 @@ Install the ML stack only when working on training code: `uv sync --extra ml`.
 - Pydantic models are frozen. Return new objects; do not mutate.
 - Optional fields mean "the source did not say" — never fill them with estimates.
 - All timestamps are timezone-aware UTC (`antar.core.types.utc_now`).
+- `None` in a metric means "not available". Never substitute zero, and never compute a
+  per-request number from Lemonade's server-wide `/v1/stats`.
+- Label who measured a number (Lemonade, the Antar API, or the browser) wherever it is shown.
+- Editing a benchmark workload's prompts requires bumping its `version`.
+- The browser never calls Lemonade; requests name a configured backend, never a URL.
 - API handlers stay thin; logic lives in `antar/` where the CLI can use it too.
 - Frontend: server state via TanStack Query hooks in `src/lib/api.ts`; shareable UI state
   (filters) in the URL; design tokens in `src/styles/global.css`. Lemon = local,
@@ -106,7 +119,15 @@ Install the ML stack only when working on training code: `uv sync --extra ml`.
 ## Lemonade facts (checked 2026-11-16 against v2026.46.2)
 
 - Default base URL `http://localhost:13305/v1` (port 13305, not 8000).
-- `GET /v1/health`, `GET /v1/models?show_all=true`, `GET /v1/system-info`.
+- `GET /v1/health`, `GET /v1/models?show_all=true`, `GET /v1/stats` (server-wide),
+  `GET /v1/system-info`, `GET /v1/downloads`.
+- `POST /v1/chat/completions` (OpenAI format; images as `image_url` data URLs; streamed
+  with `stream_options.include_usage`). Responses carry per-response `timings` and separate
+  `reasoning_content`. `enable_thinking: false` turns reasoning off.
+- `POST /v1/load` and `/v1/unload` take `{"model_name": ...}`. `/load` and chat **download
+  a missing model implicitly**. `POST /v1/pull` with `stream: true, subscribe: false`
+  starts a server-owned download.
+- Errors: `{"error": {"message", "code"}}` or `{"error": "..."}`; `model_not_found` is 404.
 - Optional auth: `Authorization: Bearer $LEMONADE_API_KEY`.
 - Documents chat, completions, embeddings, reranking, transcription, TTS, audio generation,
   and image generation/edit endpoints. **No video endpoint.**
@@ -119,10 +140,10 @@ Full version in `docs/ROADMAP.md`.
 
 - **M0 — Foundation (done):** repo, typed interfaces, API, dashboard, Lemonade discovery,
   mock backend, CI.
-- **M1 — First real measurement:** Lemonade text chat adapter; performance benchmark
-  runner (TTFT, tokens/s, peak memory); genuine experiment records shown in Benchmarks.
-- **M2 — First optimization:** quantization comparison for a text model, with a quality
-  evaluator on a pinned, licensed dataset.
+- **M1 — Real local inference (done):** Lemonade text and vision chat with streaming;
+  per-request metrics; benchmark runner, reports, export; live telemetry.
+- **M2 — First optimization:** a quality evaluator on a pinned, licensed dataset; then a
+  measured quantization comparison for one text model.
 - **M3 — AMD cloud execution:** SSH/ROCm remote runner behind explicit confirmation;
   QLoRA fine-tuning.
 - **M4 — Selection and deployment:** constraint-based selection, manifest export, local/cloud routing.

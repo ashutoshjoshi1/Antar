@@ -7,7 +7,9 @@ import { Hardware } from "./pages/Hardware";
 import { Models } from "./pages/Models";
 import { Optimization } from "./pages/Optimization";
 import { Overview } from "./pages/Overview";
+import { Playground } from "./pages/Playground";
 import { Settings } from "./pages/Settings";
+import { VisionStudio } from "./pages/VisionStudio";
 
 const Benchmarks = lazy(() =>
   import("./pages/Benchmarks").then((module) => ({ default: module.Benchmarks })),
@@ -29,6 +31,8 @@ export function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Overview />} />
+        <Route path="playground" element={<Playground />} />
+        <Route path="vision" element={<VisionStudio />} />
         <Route path="models" element={<Models />} />
         <Route path="hardware" element={<Hardware />} />
         <Route path="optimization" element={<Optimization />} />

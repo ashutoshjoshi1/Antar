@@ -1,10 +1,16 @@
-"""Lemonade backend adapter: connectivity and model discovery.
+"""Lemonade backend adapter: discovery, model management, and chat inference.
 
-Inference through Lemonade is not wired up yet. Capabilities are therefore
-reported as ``DOCUMENTED`` (Lemonade documents the endpoint) rather than
-``SUPPORTED`` (Antar can run it).
+Text chat and image understanding are ``SUPPORTED``: Antar runs them through
+``POST /v1/chat/completions``. Everything else Lemonade documents stays
+``DOCUMENTED`` until Antar has an adapter and a test for it.
+
+Lemonade's ``/load`` and ``/chat/completions`` download a missing model on
+their own. Antar never lets that happen implicitly: every call that could
+trigger it first checks that the weights are already present.
 """
 
+import re
+from collections.abc import AsyncGenerator
 from typing import ClassVar
 
 from antar.backends.base import (
@@ -12,12 +18,25 @@ from antar.backends.base import (
     BackendKind,
     BackendStatus,
     Capability,
+    DownloadJob,
     RuntimeBackend,
     SupportLevel,
 )
-from antar.backends.lemonade.client import LemonadeClient, LemonadeModel
-from antar.core.errors import BackendUnavailableError
+from antar.backends.lemonade.client import (
+    LemonadeClient,
+    LemonadeCompletion,
+    LemonadeModel,
+    LemonadeStats,
+)
+from antar.core.errors import (
+    BackendRequestError,
+    BackendUnavailableError,
+    CapabilityNotSupportedError,
+    ModelNotDownloadedError,
+    ModelNotFoundError,
+)
 from antar.core.types import Modality, Task
+from antar.inference.types import ChatDone, ChatEvent, ChatRequest, ChatResult
 from antar.models.spec import ModelSpec
 
 # Lemonade model labels -> Antar (modality, task). Labels come from the model
@@ -43,6 +62,15 @@ _RECIPE_DEFAULT_LABEL = {"llamacpp": "chat"}
 
 _BYTES_PER_GB = 1_000_000_000
 
+# Quantization variant as named in a checkpoint, e.g. "repo:Q4_K_M" or "x-Q4_0.gguf".
+_QUANTIZATION = re.compile(
+    r"(?<![A-Za-z0-9])((?:Q\d|IQ\d|F16|F32|BF16)[A-Za-z0-9_]*)", re.IGNORECASE
+)
+
+_SUPPORTED: frozenset[tuple[Modality, Task]] = frozenset(
+    {(Modality.TEXT, Task.CHAT), (Modality.VISION, Task.IMAGE_UNDERSTANDING)}
+)
+
 _ADAPTER_NOTE = "Documented by Lemonade ({endpoint}); Antar inference adapter not implemented yet."
 
 _DOCUMENTED: tuple[tuple[Modality, Task, str], ...] = (
@@ -60,8 +88,20 @@ _DOCUMENTED: tuple[tuple[Modality, Task, str], ...] = (
 )
 
 
-def to_model_spec(model: LemonadeModel) -> ModelSpec:
-    """Convert a Lemonade model entry into an Antar ModelSpec."""
+def parse_quantization(checkpoint: str | None) -> str | None:
+    """The quantization variant a checkpoint names, or None if it names none."""
+    if not checkpoint or ":" not in checkpoint:
+        return None
+    variant = checkpoint.split(":", 1)[1].removesuffix(".gguf")
+    matches = _QUANTIZATION.findall(variant)
+    return matches[-1].upper() if matches else None
+
+
+def to_model_spec(model: LemonadeModel, loaded: frozenset[str] | None = None) -> ModelSpec:
+    """Convert a Lemonade model entry into an Antar ModelSpec.
+
+    ``loaded`` is the set of model names currently in memory, or None if unknown.
+    """
     labels = model.labels
     effective = set(labels)
     if not effective & _DEPLOYMENT_LABELS and model.recipe in _RECIPE_DEFAULT_LABEL:
@@ -80,6 +120,9 @@ def to_model_spec(model: LemonadeModel) -> ModelSpec:
         runtime=model.recipe,
         size_bytes=round(model.size * _BYTES_PER_GB) if model.size is not None else None,
         downloaded=model.downloaded,
+        loaded=model.id in loaded if loaded is not None else None,
+        quantization=parse_quantization(model.checkpoint),
+        context_length=model.max_context_window,
         labels=labels,
     )
 
@@ -95,7 +138,7 @@ class LemonadeBackend(RuntimeBackend):
     async def status(self) -> BackendStatus:
         try:
             health = await self._client.health()
-        except BackendUnavailableError as exc:
+        except (BackendUnavailableError, BackendRequestError) as exc:
             return self._status(Availability.UNAVAILABLE, str(exc))
 
         if health.status != "ok":
@@ -122,12 +165,16 @@ class LemonadeBackend(RuntimeBackend):
         )
 
     def capabilities(self) -> tuple[Capability, ...]:
-        documented = tuple(
+        declared = tuple(
             Capability(
                 modality=modality,
                 task=task,
-                support=SupportLevel.DOCUMENTED,
-                note=_ADAPTER_NOTE.format(endpoint=endpoint),
+                support=SupportLevel.SUPPORTED
+                if (modality, task) in _SUPPORTED
+                else SupportLevel.DOCUMENTED,
+                note=f"Runs through {endpoint}."
+                if (modality, task) in _SUPPORTED
+                else _ADAPTER_NOTE.format(endpoint=endpoint),
             )
             for modality, task, endpoint in _DOCUMENTED
         )
@@ -136,8 +183,82 @@ class LemonadeBackend(RuntimeBackend):
             support=SupportLevel.UNSUPPORTED,
             note="Lemonade documents no video generation endpoint.",
         )
-        return (*documented, video)
+        return (*declared, video)
 
     async def list_models(self) -> tuple[ModelSpec, ...]:
         models = await self._client.list_models(show_all=True)
-        return tuple(to_model_spec(model) for model in models)
+        health = await self._client.health()
+        loaded = frozenset(model.model_name for model in health.all_models_loaded)
+        return tuple(to_model_spec(model, loaded) for model in models)
+
+    async def stats(self) -> LemonadeStats:
+        return await self._client.stats()
+
+    async def model_processes(self) -> tuple[tuple[str, int | None], ...]:
+        health = await self._client.health()
+        return tuple((model.model_name, model.pid) for model in health.all_models_loaded)
+
+    async def _require_downloaded(self, model_id: str, *, vision: bool = False) -> ModelSpec:
+        """Refuse anything that would make Lemonade download weights implicitly."""
+        models = await self.list_models()
+        spec = next((model for model in models if model.id == model_id), None)
+        if spec is None:
+            raise ModelNotFoundError(f"Lemonade has no model named '{model_id}'.")
+        if spec.downloaded is not True:
+            raise ModelNotDownloadedError(
+                f"'{model_id}' is not downloaded. Download it from the Models page first."
+            )
+        if vision and Modality.VISION not in spec.modalities:
+            raise CapabilityNotSupportedError(
+                f"'{model_id}' does not accept images. Choose a model labelled 'vision'."
+            )
+        return spec
+
+    async def load_model(self, model_id: str) -> None:
+        await self._require_downloaded(model_id)
+        await self._client.load(model_id)
+
+    async def unload_model(self, model_id: str) -> None:
+        await self._client.unload(model_id)
+
+    async def download_model(self, model_id: str) -> None:
+        models = await self._client.list_models(show_all=True)
+        if not any(model.id == model_id for model in models):
+            raise ModelNotFoundError(f"Lemonade has no model named '{model_id}'.")
+        await self._client.pull(model_id)
+
+    async def downloads(self) -> tuple[DownloadJob, ...]:
+        return tuple(
+            DownloadJob(
+                model=job.model_name,
+                status=job.status,
+                percent=job.percent,
+                bytes_downloaded=job.overall_bytes_downloaded,
+                bytes_total=job.total_download_size or None,
+                complete=job.complete,
+            )
+            for job in await self._client.downloads()
+        )
+
+    def _result(self, request: ChatRequest, completion: LemonadeCompletion) -> ChatResult:
+        return ChatResult(
+            backend=self.name,
+            model=request.model,
+            content=completion.content,
+            reasoning=completion.reasoning,
+            finish_reason=completion.finish_reason,
+            metrics=completion.metrics,
+            simulated=False,
+        )
+
+    async def chat(self, request: ChatRequest) -> ChatResult:
+        await self._require_downloaded(request.model, vision=request.has_images)
+        return self._result(request, await self._client.chat(request))
+
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatEvent, None]:
+        await self._require_downloaded(request.model, vision=request.has_images)
+        async for event in self._client.chat_stream(request):
+            if isinstance(event, LemonadeCompletion):
+                yield ChatDone(result=self._result(request, event))
+            else:
+                yield event

@@ -5,17 +5,20 @@ uv run python examples/text/mock_generation.py
 
 import asyncio
 
-from antar.backends.base import TextGenerationRequest
 from antar.backends.mock.backend import MockBackend
+from antar.inference.types import ChatMessage, ChatRequest, GenerationSettings
 
 
 async def main() -> None:
     backend = MockBackend()
     for model in await backend.list_models():
-        result = await backend.generate_text(
-            TextGenerationRequest(model=model.id, prompt="Explain quantization.", seed=7)
+        request = ChatRequest(
+            model=model.id,
+            messages=(ChatMessage(role="user", content="Explain quantization."),),
+            settings=GenerationSettings(seed=7),
         )
-        print(f"{result.model}: {result.text!r} (simulated={result.simulated})")
+        result = await backend.chat(request)
+        print(f"{result.model}: {result.content!r} (simulated={result.simulated})")
 
 
 if __name__ == "__main__":

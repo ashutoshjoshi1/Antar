@@ -96,6 +96,8 @@ def test_list_models_passes_show_all() -> None:
     queries: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/health":
+            return httpx.Response(200, json={"status": "ok"})
         queries.append(request.url.query.decode())
         return httpx.Response(200, json={"object": "list", "data": []})
 
@@ -106,9 +108,11 @@ def test_list_models_passes_show_all() -> None:
 
 def test_list_models_skips_malformed_entries_and_keeps_the_rest() -> None:
     payload = {"data": [{"id": ""}, {"no_id": True}, {"id": "Good-Model", "labels": ["chat"]}]}
-    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    client = LemonadeClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    )
 
-    models = asyncio.run(_backend(transport).list_models())
+    models = asyncio.run(client.list_models())
 
     assert [model.id for model in models] == ["Good-Model"]
 
@@ -134,11 +138,15 @@ def test_list_models_raises_when_server_is_unreachable(
         asyncio.run(_backend(offline_transport).list_models())
 
 
-def test_capabilities_never_claim_antar_support_and_exclude_video(
+def test_capabilities_claim_only_chat_and_image_understanding_and_exclude_video(
     lemonade_transport: httpx.MockTransport,
 ) -> None:
     capabilities = _backend(lemonade_transport).capabilities()
 
-    assert all(capability.support is not SupportLevel.SUPPORTED for capability in capabilities)
+    supported = {(c.modality, c.task) for c in capabilities if c.support is SupportLevel.SUPPORTED}
+    assert supported == {
+        (Modality.TEXT, Task.CHAT),
+        (Modality.VISION, Task.IMAGE_UNDERSTANDING),
+    }
     video = [capability for capability in capabilities if capability.modality is Modality.VIDEO]
     assert [capability.support for capability in video] == [SupportLevel.UNSUPPORTED]

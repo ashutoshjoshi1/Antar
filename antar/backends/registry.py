@@ -25,6 +25,8 @@ def build_backends(
                 str(lemonade.base_url),
                 api_key=lemonade.api_key.get_secret_value() if lemonade.api_key else None,
                 timeout_seconds=lemonade.timeout_seconds,
+                generation_timeout_seconds=lemonade.generation_timeout_seconds,
+                load_timeout_seconds=lemonade.load_timeout_seconds,
                 transport=lemonade_transport,
             )
         ),

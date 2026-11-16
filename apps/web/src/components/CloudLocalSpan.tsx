@@ -13,10 +13,10 @@ interface Stage {
 const PIPELINE: readonly Stage[] = [
   { name: "Accept model and workload", state: "partial", note: "Typed job spec validates; no intake flow." },
   { name: "Identify hardware", state: "partial", note: "Local detection works; cloud is declared, not probed." },
-  { name: "Measure baseline", state: "planned", note: "" },
+  { name: "Measure baseline", state: "partial", note: "Performance benchmarks run; no quality evaluators." },
   { name: "Choose techniques", state: "partial", note: "Applicability matrix only." },
   { name: "Run experiments", state: "planned", note: "" },
-  { name: "Benchmark candidates", state: "planned", note: "" },
+  { name: "Benchmark candidates", state: "partial", note: "Same runner; no candidates are produced yet." },
   { name: "Compare results", state: "planned", note: "" },
   { name: "Select configuration", state: "planned", note: "" },
   { name: "Export artifacts", state: "planned", note: "Manifest and record formats defined." },

@@ -66,9 +66,9 @@ describe("App", () => {
   it("explains how to start the API when it cannot be reached", async () => {
     renderApp("/hardware", apiDown);
 
-    const alert = await screen.findByRole("alert");
+    const [alert] = await screen.findAllByRole("alert");
     expect(alert).toHaveTextContent("Can't reach the Antar API");
-    expect(within(alert).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(within(alert as HTMLElement).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect((await screen.findAllByText("API unreachable")).length).toBeGreaterThan(0);
   });
 

@@ -44,6 +44,13 @@ class ModelSpec(BaseModel):
     downloaded: bool | None = Field(
         default=None, description="Whether weights are present on the backend, if reported."
     )
+    loaded: bool | None = Field(
+        default=None, description="Whether the model is in memory right now, if reported."
+    )
+    quantization: str | None = Field(
+        default=None, description="Quantization variant named by the checkpoint, e.g. Q4_K_M."
+    )
+    context_length: int | None = Field(default=None, ge=0)
     labels: tuple[str, ...] = Field(default=(), description="Backend-provided tags, verbatim.")
     simulated: bool = Field(
         default=False, description="True for mock models that produce no real inference."

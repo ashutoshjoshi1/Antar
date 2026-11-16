@@ -4,10 +4,12 @@ import { useHealth } from "../lib/api";
 
 const NAV = [
   { to: "/", label: "Overview" },
+  { to: "/playground", label: "Playground" },
+  { to: "/vision", label: "Vision" },
   { to: "/models", label: "Models" },
-  { to: "/hardware", label: "Hardware" },
-  { to: "/optimization", label: "Optimization" },
   { to: "/benchmarks", label: "Benchmarks" },
+  { to: "/hardware", label: "System" },
+  { to: "/optimization", label: "Optimization" },
   { to: "/deployments", label: "Deployments" },
   { to: "/settings", label: "Settings" },
 ] as const;

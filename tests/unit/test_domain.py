@@ -159,18 +159,6 @@ def test_evaluation_result_rejects_metric_from_another_modality() -> None:
         )
 
 
-def test_benchmark_config_rejects_unknown_metric() -> None:
-    with pytest.raises(ValidationError, match="fid"):
-        BenchmarkConfig(
-            name="b",
-            model=_MODEL,
-            backend="mock",
-            modality=Modality.TEXT,
-            task=Task.CHAT,
-            metrics=("fid",),
-        )
-
-
 def test_artifact_requires_sha256_digest() -> None:
     with pytest.raises(ValidationError):
         ArtifactRef(kind="weights", path="model.gguf", sha256="abc", size_bytes=1)

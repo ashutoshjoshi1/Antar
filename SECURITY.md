@@ -17,8 +17,15 @@ publicly.
 
 Knowing what Antar is designed for helps you judge what counts as a vulnerability.
 
-- **The API is a local developer tool.** It has no authentication, is read-only, and binds
-  to `127.0.0.1` by default. Do not expose it to an untrusted network.
+- **The API is a local developer tool.** It has no authentication and binds to `127.0.0.1`
+  by default. It can run inference, load and unload models, start confirmed downloads, and
+  run benchmarks, so do not expose it to an untrusted network.
+- **Inference targets are fixed by configuration.** Requests choose a backend by name.
+  Nothing in the API accepts a URL, so it cannot be used to make the server call arbitrary
+  hosts.
+- **Uploaded images** are validated by type, file signature, and size, held in memory, and
+  forwarded only to the configured Lemonade server. They are never written to disk.
+- **Model output is rendered as text**, never as HTML.
 - **CORS** is restricted to the configured dashboard origins.
 - **Secrets** (the Lemonade API key) are read from the environment or `.env`, held as
   `SecretStr`, and never returned by the API. URLs containing embedded credentials are

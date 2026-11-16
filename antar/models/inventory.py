@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pydantic import BaseModel, ConfigDict
 
 from antar.backends.base import Availability, BackendStatus, RuntimeBackend
-from antar.core.errors import BackendUnavailableError
+from antar.core.errors import BackendRequestError, BackendUnavailableError
 from antar.models.spec import ModelSpec
 
 
@@ -33,7 +33,7 @@ async def _collect_one(backend: RuntimeBackend) -> tuple[BackendStatus, tuple[Mo
         return status, ()
     try:
         return status, await backend.list_models()
-    except BackendUnavailableError as exc:
+    except (BackendUnavailableError, BackendRequestError) as exc:
         # The backend answered the health check but failed to list models.
         unavailable = status.model_copy(
             update={"availability": Availability.UNAVAILABLE, "detail": str(exc)}

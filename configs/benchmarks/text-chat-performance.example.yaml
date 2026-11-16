@@ -1,14 +1,15 @@
 # BenchmarkConfig (antar/benchmarking/config.py).
-# A performance-only benchmark needs no dataset. Quality metrics require a
-# `dataset:` block with name, version, and license.
-name: text-chat-performance
+# POST this (as JSON) to /api/v1/benchmarks, or use the Benchmarks page.
+# The model must already be downloaded in Lemonade; Antar never downloads it for you.
+name: text-baseline
 model:
-  id: example-org/example-llm
-  revision: main
+  id: Qwen3-1.7B-GGUF
 backend: lemonade
-modality: text
-task: chat
-metrics: [time_to_first_token_ms, tokens_per_second, peak_memory_bytes]
+workloads: [general_qa, code_generation, structured_json]
 warmup_runs: 1
-measured_runs: 5
+measured_runs: 3
+max_tokens: 256
+temperature: 0.0
 seed: 42
+enable_thinking: false
+load_policy: keep        # or "reload" to measure load time and a cold first request

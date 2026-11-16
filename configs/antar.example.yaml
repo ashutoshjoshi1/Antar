@@ -8,7 +8,11 @@ enable_mock_backend: true
 lemonade:
   # Lemonade's documented default. Include the /v1 prefix.
   base_url: http://localhost:13305/v1
-  timeout_seconds: 3.0
+  timeout_seconds: 3.0             # connecting, and short calls such as health
+  generation_timeout_seconds: 300  # longest silence tolerated during generation
+  load_timeout_seconds: 600
+
+max_image_bytes: 8388608           # per uploaded image
 
 storage:
   models_dir: data/models

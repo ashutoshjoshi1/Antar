@@ -6,7 +6,27 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
+### Added (Phase 1: local inference)
+
+- Lemonade chat adapter: text and image-understanding chat, streaming over Server-Sent
+  Events, cancellation that stops generation in Lemonade, separate reasoning output.
+- Model load, unload, and explicitly confirmed download. Antar refuses to load or run a
+  model that is not downloaded, because Lemonade would otherwise download it implicitly.
+- Per-request metrics built from the backend's per-response timings.
+- Benchmark runner with general QA, code generation, structured JSON, and basic vision
+  workloads; cold and warm runs kept apart; mean, median, and P95 latency; tokens per
+  second; error rate; saved reports with JSON and CSV export and manual review fields.
+- Live telemetry endpoint that labels unavailable measurements with the reason.
+- Dashboard: Playground, Vision, Benchmarks lab, model actions, and a live System page.
+- Opt-in live tests against a real Lemonade server (`pytest -m lemonade_live`).
+
+### Changed
+
+- `RuntimeBackend.generate_text` is replaced by `chat` and `chat_stream`.
+- `BenchmarkConfig` now describes a runnable benchmark (workloads, runs, load policy).
+- The Lemonade backend reports text chat and image understanding as `supported`.
+
+### Added (Phase 0: foundation)
 
 - Repository foundation: Python library, FastAPI app, Typer CLI, React dashboard.
 - Typed specifications for models, hardware, backends, optimization jobs, benchmarks,
@@ -23,5 +43,5 @@ All notable changes are recorded here. The format follows
 
 ### Not yet implemented
 
-- Inference through real backends, optimization executors, the benchmark runner,
-  evaluators, remote execution, and deployment routing. See `docs/ROADMAP.md`.
+- Quality evaluators, optimization executors, remote execution, deployment routing, and
+  the speech, image-generation, and video modalities. See `docs/ROADMAP.md`.

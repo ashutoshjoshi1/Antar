@@ -2,12 +2,13 @@
 
 A backend is anything that can host models: a local server, a remote GPU host,
 or a mock. Every backend must be able to say whether it is reachable, what it
-supports, and which models it has. Inference methods are opt-in: the default
-implementation refuses, so a backend can never appear to support something it
+supports, and which models it has. Inference and model management are opt-in:
+the default implementations refuse, so a backend can never appear to support something it
 has not implemented.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from antar.core.errors import CapabilityNotSupportedError
 from antar.core.types import Modality, Task, utc_now
+from antar.inference.types import ChatEvent, ChatRequest, ChatResult
 from antar.models.spec import ModelSpec
 
 
@@ -69,25 +71,17 @@ class BackendStatus(BaseModel):
     checked_at: datetime = Field(default_factory=utc_now)
 
 
-class TextGenerationRequest(BaseModel):
+class DownloadJob(BaseModel):
+    """Progress of a model download owned by the backend."""
+
     model_config = ConfigDict(frozen=True)
 
-    model: str = Field(min_length=1)
-    prompt: str = Field(min_length=1)
-    max_tokens: int = Field(default=128, ge=1, le=8192)
-    seed: int | None = None
-
-
-class TextGenerationResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    backend: str
     model: str
-    text: str
-    prompt_tokens: int = Field(ge=0)
-    completion_tokens: int = Field(ge=0)
-    latency_ms: float = Field(ge=0)
-    simulated: bool = Field(description="True when no real model produced this output.")
+    status: str
+    percent: float | None = None
+    bytes_downloaded: int | None = None
+    bytes_total: int | None = None
+    complete: bool = False
 
 
 class RuntimeBackend(ABC):
@@ -109,7 +103,29 @@ class RuntimeBackend(ABC):
     async def list_models(self) -> tuple[ModelSpec, ...]:
         """List models. Raises ``BackendUnavailableError`` if the backend cannot be reached."""
 
-    async def generate_text(self, request: TextGenerationRequest) -> TextGenerationResult:
-        raise CapabilityNotSupportedError(
-            f"Backend '{self.name}' does not implement text generation in Antar yet."
-        )
+    async def chat(self, request: ChatRequest) -> ChatResult:
+        raise CapabilityNotSupportedError(f"Backend '{self.name}' does not implement chat.")
+
+    def chat_stream(self, request: ChatRequest) -> AsyncIterator[ChatEvent]:
+        """Yield ``ChatDelta`` events, then exactly one ``ChatDone``.
+
+        Closing the iterator must stop the backend's generation where possible.
+        """
+        raise CapabilityNotSupportedError(f"Backend '{self.name}' does not implement streaming.")
+
+    async def load_model(self, model_id: str) -> None:
+        raise CapabilityNotSupportedError(f"Backend '{self.name}' cannot load models.")
+
+    async def unload_model(self, model_id: str) -> None:
+        raise CapabilityNotSupportedError(f"Backend '{self.name}' cannot unload models.")
+
+    async def download_model(self, model_id: str) -> None:
+        """Start a download. Only ever called on an explicit user action."""
+        raise CapabilityNotSupportedError(f"Backend '{self.name}' cannot download models.")
+
+    async def downloads(self) -> tuple[DownloadJob, ...]:
+        return ()
+
+    async def model_processes(self) -> tuple[tuple[str, int | None], ...]:
+        """(model id, process id) for each model in memory, where the backend reports it."""
+        return ()

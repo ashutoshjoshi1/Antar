@@ -71,7 +71,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+# ASYNC110: tests poll a fake backend for a few event-loop turns; an Event would add noise.
+"tests/**" = ["S101", "S105", "S106", "ASYNC110"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Typer declares CLI options as call expressions in argument defaults.
@@ -87,9 +88,9 @@ explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not lemonade_live'"
 markers = [
-    "lemonade_live: requires a running Lemonade server (skipped by default)",
+    "lemonade_live: needs a running Lemonade server with models; run with -m lemonade_live",
 ]
 
 [tool.coverage.run]

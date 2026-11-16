@@ -4,12 +4,12 @@ import asyncio
 
 import typer
 
-from antar.backends.base import TextGenerationRequest
 from antar.backends.mock.backend import MockBackend
 from antar.backends.registry import build_backends
 from antar.config.settings import get_settings
 from antar.core.errors import AntarError
 from antar.hardware.detect import detect_local_hardware
+from antar.inference.types import ChatMessage, ChatRequest, GenerationSettings
 from antar.models.inventory import collect_inventory
 
 app = typer.Typer(
@@ -62,11 +62,12 @@ def mock_generate(
 ) -> None:
     """Exercise the mock backend. Output is simulated, not real inference."""
     try:
-        result = asyncio.run(
-            MockBackend().generate_text(
-                TextGenerationRequest(model=model, prompt=prompt, seed=seed)
-            )
+        request = ChatRequest(
+            model=model,
+            messages=(ChatMessage(role="user", content=prompt),),
+            settings=GenerationSettings(seed=seed),
         )
+        result = asyncio.run(MockBackend().chat(request))
     except (AntarError, ValueError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

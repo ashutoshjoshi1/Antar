@@ -1,7 +1,110 @@
-import { Fact, Meter, PageHeader, Panel, QueryView } from "../components/ui";
-import { useSystem } from "../lib/api";
-import { formatBytes, usedFraction } from "../lib/format";
-import type { HardwareProfile } from "../lib/types";
+import { Link } from "react-router";
+
+import { Fact, Meter, PageHeader, Panel, QueryView, StatusPill } from "../components/ui";
+import { useBackends, useSystem, useTelemetry } from "../lib/api";
+import { formatBytes, formatCount, formatDuration, titleCase, usedFraction } from "../lib/format";
+import type { HardwareProfile, Telemetry } from "../lib/types";
+
+function describeMetric(metric: string): string {
+  const [name, subject] = metric.split(":");
+  const label = titleCase(name ?? metric);
+  return subject ? `${label} (${subject})` : label;
+}
+
+function LiveTelemetry({ telemetry }: { telemetry: Telemetry }) {
+  const backends = useBackends();
+  const lemonade = backends.data?.find((backend) => backend.name === "lemonade");
+  const { system, lemonade_stats: stats } = telemetry;
+  const activeRequests = stats?.live?.active_requests ?? null;
+  const used = system.memory_total_bytes - system.memory_available_bytes;
+
+  return (
+    <div className="mb-6 grid gap-6 lg:grid-cols-3">
+      <Panel title="Inference right now">
+        <dl>
+          <Fact term="Lemonade">
+            {lemonade ? <StatusPill availability={lemonade.availability} /> : "Checking…"}
+          </Fact>
+          <Fact term="Model in memory">
+            {telemetry.loaded_models.length > 0 ? (
+              telemetry.loaded_models.map((item) => (
+                <span key={item.model} className="block font-mono text-xs">
+                  {item.model}
+                </span>
+              ))
+            ) : (
+              <span className="text-muted">None</span>
+            )}
+          </Fact>
+          <Fact term="Status">
+            {telemetry.benchmark_running ? (
+              <Link to="/benchmarks" className="text-local hover:underline">
+                Benchmark running
+              </Link>
+            ) : activeRequests === null ? (
+              <span className="text-faint">Unavailable</span>
+            ) : activeRequests > 0 ? (
+              `Generating (${activeRequests} active)`
+            ) : (
+              "Idle"
+            )}
+          </Fact>
+        </dl>
+        {lemonade && lemonade.availability !== "available" && (
+          <p className="mt-3 text-sm text-muted">{lemonade.detail}</p>
+        )}
+      </Panel>
+
+      <Panel title="Measured now">
+        <div className="space-y-5">
+          <Meter label="CPU in use" fraction={system.cpu_percent / 100} detail={`${system.cpu_percent.toFixed(0)}%`} />
+          <Meter
+            label="Memory in use"
+            fraction={usedFraction(system.memory_total_bytes, system.memory_available_bytes)}
+            detail={`${formatBytes(used)} of ${formatBytes(system.memory_total_bytes)}`}
+          />
+          <dl>
+            {system.processes.map((process) => (
+              <Fact key={process.pid} term={`${process.label} memory`}>
+                {formatBytes(process.rss_bytes)}
+              </Fact>
+            ))}
+          </dl>
+        </div>
+      </Panel>
+
+      <Panel title="Lemonade server counters">
+        {stats ? (
+          <dl>
+            <Fact term="Latest request speed">{formatCount(stats.tokens_per_second, "tokens/s")}</Fact>
+            <Fact term="Latest time to first token">
+              {formatDuration(stats.time_to_first_token === null ? null : stats.time_to_first_token * 1000)}
+            </Fact>
+            <Fact term="Requests since start">{formatCount(stats.request_count_total)}</Fact>
+            <Fact term="Tokens generated since start">{formatCount(stats.output_tokens_total)}</Fact>
+          </dl>
+        ) : (
+          <p className="text-sm text-muted">Unavailable while Lemonade is not reachable.</p>
+        )}
+        <p className="mt-3 text-xs text-faint">
+          These describe the whole server and whichever request it served last, from any client.
+          Per-request numbers are on the Playground and Benchmarks pages.
+        </p>
+      </Panel>
+
+      <Panel title="Not available on this machine" className="lg:col-span-3">
+        <ul className="grid gap-x-10 gap-y-2 text-sm sm:grid-cols-2">
+          {system.unavailable.map((item) => (
+            <li key={item.metric}>
+              <span className="text-ink">{describeMetric(item.metric)}</span>
+              <span className="block text-xs text-muted">{item.reason}</span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+    </div>
+  );
+}
 
 function Profile({ profile }: { profile: HardwareProfile }) {
   const memoryUsed = profile.memory_total_bytes - profile.memory_available_bytes;
@@ -99,11 +202,12 @@ function Profile({ profile }: { profile: HardwareProfile }) {
 
 export function Hardware() {
   const system = useSystem();
+  const telemetry = useTelemetry();
   return (
     <>
       <PageHeader
-        title="Hardware"
-        summary="What Antar detected on the machine running the API. Remote AMD hosts are declared in configuration, not probed."
+        title="System"
+        summary="Live inference status and what this machine reports about itself. Anything the operating system does not expose is listed as unavailable, not estimated."
         actions={
           <button
             type="button"
@@ -114,6 +218,7 @@ export function Hardware() {
           </button>
         }
       />
+      <QueryView query={telemetry}>{(data) => <LiveTelemetry telemetry={data} />}</QueryView>
       <QueryView query={system}>{(data) => <Profile profile={data} />}</QueryView>
     </>
   );

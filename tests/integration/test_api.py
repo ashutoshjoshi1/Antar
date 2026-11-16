@@ -72,7 +72,7 @@ def test_models_include_lemonade_inventory_when_reachable(online: TestClient) ->
     body = online.get("/api/v1/models").json()
 
     lemonade = [model for model in body["models"] if model["backend"] == "lemonade"]
-    assert len(lemonade) == 4
+    assert len(lemonade) == 5
     assert not any(model["simulated"] for model in lemonade)
 
 
@@ -92,7 +92,7 @@ def test_capabilities_cover_all_modalities_and_do_not_overclaim(offline: TestCli
         for capability in backend["capabilities"]
         if capability["support"] == "supported"
     }
-    assert supported == {("mock", "text")}
+    assert supported == {("mock", "text"), ("lemonade", "text"), ("lemonade", "vision")}
     assert not any(technique["implemented"] for technique in body["techniques"])
 
 

@@ -11,21 +11,26 @@ experiments. This is a plan, not a promise.
 - Local hardware detection; Lemonade connectivity and model discovery; mock backend.
 - Dashboard with live Overview, Models, Hardware, and Settings.
 
-## M1 — First real measurement
+## M1 — Real local inference (complete)
 
-The smallest slice that produces a genuine number.
+- Lemonade chat adapter: text and image understanding, streaming, cancellation.
+- Model load, unload, and explicitly confirmed download; no implicit downloads.
+- Per-request metrics from the backend's own response timings.
+- Benchmark runner with three text workloads and a basic vision workload; cold and warm
+  runs kept apart; reports with JSON and CSV export; manual review fields.
+- Live telemetry with unavailable measurements labelled.
+- Dashboard: Playground, Vision, Models, Benchmarks, System.
 
-- Lemonade text chat adapter (`POST /v1/chat/completions`), streaming for time to first token.
-- Performance benchmark runner: time to first token, tokens per second, peak memory.
-- Runner writes an `ExperimentRecord`; Benchmarks page charts it.
-- `antar benchmark` CLI command.
-- Linux GPU enumeration (AMD first), verified on real hardware.
+Carried over, not done: Linux GPU enumeration, which needs real AMD hardware to verify.
 
 ## M2 — First optimization
 
-- Quality evaluator for one text task on a pinned dataset with a recorded license.
-- Quantization comparison: several quantization levels of one model, baseline versus each.
-- Baseline-versus-candidate report export.
+- A quality evaluator for one text task on a pinned dataset with a recorded license.
+- Quantization comparison: several quantization levels of one model, each benchmarked for
+  speed and evaluated for quality against the same baseline.
+- Experiment records written by the pipeline, linking baseline and candidate reports.
+- A larger, versioned prompt set, and a way to load a custom one.
+- Linux GPU enumeration and telemetry (AMD first).
 
 ## M3 — AMD cloud execution
 
@@ -43,7 +48,7 @@ The smallest slice that produces a genuine number.
 ## M5 — More modalities
 
 - Speech (transcription first: word error rate, real-time factor).
-- Vision-language models.
+- Vision quality evaluation on a labelled dataset.
 - Image generation.
 - Video only once a supported backend exists. Lemonade documents none today.
 

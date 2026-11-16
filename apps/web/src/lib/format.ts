@@ -26,6 +26,25 @@ export function titleCase(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+const UNAVAILABLE = "Unavailable";
+
+/** Milliseconds as ms below one second, otherwise seconds. */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return UNAVAILABLE;
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+export function formatCount(value: number | null | undefined, unit = ""): string {
+  if (value === null || value === undefined) return UNAVAILABLE;
+  const digits = Number.isInteger(value) ? 0 : 1;
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: digits })}${unit && ` ${unit}`}`;
+}
+
+export function formatPercent(fraction: number | null | undefined): string {
+  if (fraction === null || fraction === undefined) return UNAVAILABLE;
+  return `${(fraction * 100).toFixed(fraction > 0 && fraction < 0.1 ? 1 : 0)}%`;
+}
+
 export interface MetricDelta {
   key: string;
   name: string;
