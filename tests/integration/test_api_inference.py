@@ -189,7 +189,7 @@ def test_request_size_is_bounded(client: TestClient) -> None:
 def test_inference_and_model_changes_are_refused_while_a_benchmark_measures(
     client: TestClient, fake_lemonade: FakeLemonade
 ) -> None:
-    client.app.state.benchmarks._starting = True  # type: ignore[attr-defined]
+    client.app.state.benchmarks._slot.acquire("benchmark")  # type: ignore[attr-defined]
 
     responses = [
         client.post("/api/v1/inference/chat", json=_chat()),
@@ -199,7 +199,7 @@ def test_inference_and_model_changes_are_refused_while_a_benchmark_measures(
     ]
 
     assert [response.status_code for response in responses] == [409] * 4
-    assert "benchmark is running" in responses[0].json()["detail"]
+    assert "benchmark or comparison is running" in responses[0].json()["detail"]
     assert not [request for request in fake_lemonade.requests if request[0] == "POST"]
 
 

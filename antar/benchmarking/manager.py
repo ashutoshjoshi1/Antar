@@ -30,7 +30,7 @@ from antar.core.types import Modality, utc_now
 from antar.hardware.detect import detect_local_hardware
 from antar.hardware.telemetry import Unavailable, collect_telemetry
 from antar.inference.service import get_backend
-from antar.models.spec import ModelSpec
+from antar.models.spec import ExecutionLocation, ModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +55,45 @@ def current_git_commit() -> str | None:
     return completed.stdout.strip() or None
 
 
+class JobSlot:
+    """The one measuring job allowed at a time, shared by benchmarks and comparisons.
+
+    Measurements need the hardware to themselves, so a second job is refused
+    rather than queued.
+    """
+
+    def __init__(self) -> None:
+        self._owner: str | None = None
+
+    @property
+    def busy(self) -> bool:
+        return self._owner is not None
+
+    def acquire(self, owner: str) -> None:
+        # No await between the check and the assignment, so two requests cannot both pass.
+        if self._owner is not None:
+            raise BenchmarkBusyError(
+                f"A {self._owner} is already running. Wait for it or cancel it."
+            )
+        self._owner = owner
+
+    def release(self) -> None:
+        self._owner = None
+
+
 class BenchmarkManager:
-    def __init__(self, backends: Sequence[RuntimeBackend], store: BenchmarkStore) -> None:
+    def __init__(
+        self,
+        backends: Sequence[RuntimeBackend],
+        store: BenchmarkStore,
+        slot: JobSlot | None = None,
+    ) -> None:
         self._backends = tuple(backends)
         self._store = store
+        self._slot = slot or JobSlot()
         self._runner: BenchmarkRunner | None = None
         self._task: asyncio.Task[None] | None = None
         self._progress: BenchmarkProgress | None = None
-        self._starting = False
 
     @property
     def progress(self) -> BenchmarkProgress | None:
@@ -71,7 +102,8 @@ class BenchmarkManager:
 
     @property
     def is_running(self) -> bool:
-        return self._starting or (self._task is not None and not self._task.done())
+        """True while any measuring job holds the slot, a comparison included."""
+        return self._slot.busy
 
     async def _validate_model(self, backend: RuntimeBackend, config: BenchmarkConfig) -> ModelSpec:
         status = await backend.status()
@@ -81,7 +113,11 @@ class BenchmarkManager:
         spec = next((model for model in models if model.id == config.model.id), None)
         if spec is None:
             raise ModelNotFoundError(f"{backend.display_name} has no model '{config.model.id}'.")
-        if spec.downloaded is not True:
+        if spec.location is ExecutionLocation.CLOUD:
+            # Nothing to download for a remote model; it only has to be served right now.
+            if spec.loaded is False:
+                raise ModelNotFoundError(f"{backend.display_name} is not serving '{spec.id}'.")
+        elif spec.downloaded is not True:
             raise ModelNotDownloadedError(
                 f"'{spec.id}' is not downloaded. Download it from the Models page first."
             )
@@ -96,22 +132,39 @@ class BenchmarkManager:
         return spec
 
     async def start(self, config: BenchmarkConfig) -> BenchmarkProgress:
-        if self.is_running:
-            raise BenchmarkBusyError("A benchmark is already running. Wait for it or cancel it.")
         # Reserve the slot before the first await, so two requests cannot both get past
-        # the check above while the first is still validating.
-        self._starting = True
+        # the check while the first is still validating.
+        self._slot.acquire("benchmark")
         try:
             return await self._start(config)
-        finally:
-            self._starting = False
+        except BaseException:
+            self._slot.release()
+            raise
 
-    async def _start(self, config: BenchmarkConfig) -> BenchmarkProgress:
+    async def prepare(
+        self, config: BenchmarkConfig
+    ) -> tuple[RuntimeBackend, ModelSpec, BenchmarkEnvironment]:
+        """Validate a configuration and capture where it will run. Starts nothing."""
         backend = get_backend(self._backends, config.backend)
         spec = await self._validate_model(backend, config)
         status = await backend.status()
         hardware = await asyncio.to_thread(detect_local_hardware)
-        telemetry = await asyncio.to_thread(collect_telemetry, await backend.model_processes())
+        remote = spec.location is ExecutionLocation.CLOUD
+        gaps: tuple[Unavailable, ...] = ()
+        if not remote:
+            # Local telemetry describes this machine, so it says nothing about a remote model.
+            telemetry = await asyncio.to_thread(collect_telemetry, await backend.model_processes())
+            gaps = telemetry.unavailable
+        remote_gpus = await backend.gpu_sample() if remote else None
+        if remote and remote_gpus is None:
+            gaps = (
+                Unavailable(
+                    metric="remote_gpu",
+                    reason="No SSH host is configured, so the remote GPUs cannot be read.",
+                ),
+            )
+        elif remote_gpus is not None:
+            gaps = remote_gpus.unavailable
         environment = BenchmarkEnvironment(
             hardware=hardware,
             model=ModelSnapshot(
@@ -120,19 +173,32 @@ class BenchmarkManager:
                 quantization=spec.quantization,
                 runtime=spec.runtime,
                 size_bytes=spec.size_bytes,
+                revision=spec.revision or config.model.revision,
+                parameter_count=spec.parameter_count,
+                context_length=spec.context_length,
             ),
             backend_version=status.version,
             git_commit=await asyncio.to_thread(current_git_commit),
             missing_telemetry=(
-                *telemetry.unavailable,
+                *gaps,
                 Unavailable(
                     metric="peak_memory_per_request",
                     reason="The backend does not report memory use for individual requests.",
                 ),
             ),
             simulated=backend.kind is BackendKind.MOCK,
+            execution=spec.location,
+            remote_gpus=remote_gpus,
         )
+        return backend, spec, environment
 
+    async def _start(self, config: BenchmarkConfig) -> BenchmarkProgress:
+        backend, spec, environment = await self.prepare(config)
+        if spec.location is ExecutionLocation.CLOUD and not config.confirm_cloud_usage:
+            raise CapabilityNotSupportedError(
+                f"'{spec.id}' runs in the cloud, so this benchmark uses paid instance time. "
+                "Set confirm_cloud_usage to true to run it."
+            )
         report_id = f"bench-{utc_now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         progress = BenchmarkProgress(
             id=report_id,
@@ -168,6 +234,8 @@ class BenchmarkManager:
                 "failure": "The benchmark stopped unexpectedly. See the Antar API log.",
                 "current": None,
             }
+        finally:
+            self._slot.release()
         if self._progress is not None and self._progress.id == report_id:
             self._progress = self._progress.model_copy(update=update)
 

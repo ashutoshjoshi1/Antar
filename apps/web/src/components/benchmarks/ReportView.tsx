@@ -3,9 +3,9 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 
 import { API_BASE, useBenchmarkReport, useEvaluateRun } from "../../lib/api";
 import { comparisonIssues } from "../../lib/benchmarks";
-import { formatBytes, formatCount, formatDuration, formatPercent } from "../../lib/format";
+import { formatBytes, formatCount, formatDuration, formatParameters, formatPercent } from "../../lib/format";
 import type { Aggregate, BenchmarkReport, ReportSummary, RunRecord } from "../../lib/types";
-import { Fact, Panel, QueryView, Tag } from "../ui";
+import { Fact, LocationBadge, Panel, QueryView, Tag } from "../ui";
 
 const axis = { stroke: "var(--color-faint)", tick: { fill: "var(--color-muted)", fontSize: 12 } };
 const tooltipStyle = {
@@ -21,8 +21,10 @@ function AggregateTable({ report }: { report: BenchmarkReport }) {
       ? "All workloads"
       : (report.workloads.find((workload) => workload.id === aggregate.workload)?.name ?? aggregate.workload);
   const showJson = report.aggregates.some((aggregate) => aggregate.json_valid_rate !== null);
+  // Reports saved before automatic scoring have no accuracy field at all.
+  const showScore = report.aggregates.some((aggregate) => (aggregate.accuracy ?? null) !== null);
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
         <caption className="sr-only">Statistics over measured requests</caption>
         <thead className="text-left text-muted">
@@ -34,6 +36,7 @@ function AggregateTable({ report }: { report: BenchmarkReport }) {
               </th>
             ))}
             {showJson && <th scope="col" className="pb-2 text-right font-normal">Valid JSON</th>}
+            {showScore && <th scope="col" className="pb-2 pl-4 text-right font-normal">Automatic score</th>}
           </tr>
         </thead>
         <tbody className="tabular">
@@ -54,6 +57,17 @@ function AggregateTable({ report }: { report: BenchmarkReport }) {
               {showJson && (
                 <td className="border-t border-line py-2 text-right">
                   {aggregate.json_valid_rate === null ? "—" : formatPercent(aggregate.json_valid_rate)}
+                </td>
+              )}
+              {showScore && (
+                <td className="border-t border-line py-2 pl-4 text-right whitespace-nowrap">
+                  {(aggregate.accuracy ?? null) === null ? (
+                    <span className="text-faint" title="No prompt in this workload has a reference answer.">Not scored</span>
+                  ) : (
+                    <>
+                      {formatPercent(aggregate.accuracy)} <span className="text-muted">of {aggregate.scored}</span>
+                    </>
+                  )}
                 </td>
               )}
             </tr>
@@ -156,8 +170,9 @@ function Responses({ report }: { report: BenchmarkReport }) {
         Responses and manual review ({runs.length})
       </summary>
       <p className="mt-2 max-w-[75ch] text-xs text-muted">
-        Antar does not score free-text or image answers. Read them and record your own judgement;
-        it is saved with the report.
+        Prompts with a reference answer are scored by the Antar scorer using a fixed rule. Free-text
+        and descriptive answers are not scored: read them and record your own judgement, which is
+        saved with the report.
       </p>
       <ol className="mt-3 space-y-4">
         {runs.map((run) => (
@@ -174,6 +189,15 @@ function Responses({ report }: { report: BenchmarkReport }) {
             {run.json_valid !== null && (
               <p className="mt-2">
                 <Tag tone={run.json_valid ? "plain" : "warn"}>{run.json_valid ? "Valid JSON" : "Not valid JSON"}</Tag>
+              </p>
+            )}
+            {(run.score ?? null) !== null && (
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <Tag tone={run.score === 1 ? "plain" : "warn"}>
+                  Automatic score {formatPercent(run.score)}
+                  {run.score_method ? `, ${run.score_method.replaceAll("_", " ")} rule` : ""}
+                </Tag>
+                {run.score_detail && <span className="break-words">{run.score_detail}</span>}
               </p>
             )}
             {run.ok && <ManualReview report={report} run={run} />}
@@ -271,7 +295,8 @@ function Report({ report, others }: { report: BenchmarkReport; others: ReportSum
         <p className="text-xs text-faint">
           Statistics cover measured requests only; warm-up and cold requests are excluded. P95 is the
           nearest-rank percentile. Latency is measured by the Antar API; tokens per second is reported
-          by Lemonade for each response.
+          by the backend ({report.backend}) for each response, where it reports one. Automatic scores
+          come from the Antar scorer.
         </p>
         <RunCharts runs={report.runs} />
 
@@ -289,12 +314,28 @@ function Report({ report, others }: { report: BenchmarkReport; others: ReportSum
             <Fact term="Model">
               <span className="font-mono text-xs">{report.model.checkpoint ?? report.model.id}</span>
             </Fact>
+            <Fact term="Ran on">
+              {report.execution ? <LocationBadge location={report.execution} /> : "Not recorded"}
+            </Fact>
+            {report.model.revision && (
+              <Fact term="Revision">
+                <span className="font-mono text-xs break-all">{report.model.revision}</span>
+              </Fact>
+            )}
+            {(report.model.parameter_count ?? null) !== null && (
+              <Fact term="Parameters">{formatParameters(report.model.parameter_count)}</Fact>
+            )}
+            {report.remote_gpus && report.remote_gpus.gpus.length > 0 && (
+              <Fact term="Remote GPUs">
+                {report.remote_gpus.gpus.map((gpu) => gpu.name ?? `GPU ${gpu.index}`).join(", ")}
+              </Fact>
+            )}
             <Fact term="Quantization">{report.model.quantization ?? "Not stated"}</Fact>
             <Fact term="Size">{formatBytes(report.model.size_bytes)}</Fact>
             <Fact term="Runtime">
               {report.backend} {report.backend_version ?? ""}, {report.model.runtime ?? "runtime not stated"}
             </Fact>
-            <Fact term="Hardware">
+            <Fact term={report.execution === "cloud" ? "Antar ran on" : "Hardware"}>
               {report.hardware.cpu_model}, {formatBytes(report.hardware.memory_total_bytes)}
             </Fact>
             <Fact term="System">

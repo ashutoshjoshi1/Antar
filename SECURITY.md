@@ -24,14 +24,23 @@ Knowing what Antar is designed for helps you judge what counts as a vulnerabilit
   Nothing in the API accepts a URL, so it cannot be used to make the server call arbitrary
   hosts.
 - **Uploaded images** are validated by type, file signature, and size, held in memory, and
-  forwarded only to the configured Lemonade server. They are never written to disk.
+  forwarded only to the backend the request names: the configured Lemonade server, or the
+  configured cloud endpoint. They are never written to disk or to logs.
 - **Model output is rendered as text**, never as HTML.
 - **CORS** is restricted to the configured dashboard origins.
-- **Secrets** (the Lemonade API key) are read from the environment or `.env`, held as
+- **Secrets** (the Lemonade and cloud endpoint API keys) are read from the environment or `.env`, held as
   `SecretStr`, and never returned by the API. URLs containing embedded credentials are
   rejected.
 - **AMD cloud profiles** are validated so host, user, and working-directory values cannot
-  be interpreted as SSH options or shell syntax. No remote connection is made today.
+  be interpreted as SSH options or shell syntax. Over SSH, Antar runs only fixed, read-only
+  commands defined in its own code, with `BatchMode=yes`; it never reads a private key.
+- **The cloud endpoint** must be a loopback address, or a host listed in
+  `cloud.trusted_hosts` that uses HTTPS and has an API key. Anything else is refused when
+  settings load. See [docs/cloud/secure-access.md](docs/cloud/secure-access.md).
+- **Running model-written code** to score the unit-tested coding workload is off by
+  default. When enabled it runs in a separate process with a time limit, which is not a
+  security sandbox.
+- **Cloud resources** are never started, stopped, or resized by Antar.
 - **Experiment ids** are validated against a strict pattern before they are used as file
   names.
 - **Subprocesses** for hardware probing use fixed argument lists, never a shell.

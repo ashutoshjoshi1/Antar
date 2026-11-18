@@ -92,7 +92,21 @@ def test_capabilities_cover_all_modalities_and_do_not_overclaim(offline: TestCli
         for capability in backend["capabilities"]
         if capability["support"] == "supported"
     }
-    assert supported == {("mock", "text"), ("lemonade", "text"), ("lemonade", "vision")}
+    assert supported == {
+        ("mock", "text"),
+        ("lemonade", "text"),
+        ("lemonade", "vision"),
+        ("amd_cloud", "text"),
+        ("amd_cloud", "vision"),
+    }
+    planned = {
+        capability["modality"]
+        for backend in body["backends"]
+        if backend["backend"] == "amd_cloud"
+        for capability in backend["capabilities"]
+        if capability["support"] == "planned"
+    }
+    assert planned == {"speech", "image", "video"}
     assert not any(technique["implemented"] for technique in body["techniques"])
 
 

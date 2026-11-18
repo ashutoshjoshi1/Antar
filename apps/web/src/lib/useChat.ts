@@ -9,7 +9,7 @@ export interface Turn {
   role: "user" | "assistant";
   content: string;
   reasoning: string;
-  image?: ImageInput;
+  images?: ImageInput[];
   /** Set once generation finishes normally. */
   metrics?: InferenceMetrics;
   finishReason?: string | null;
@@ -26,7 +26,7 @@ interface SendArgs {
   backend: string;
   model: string;
   text: string;
-  image?: ImageInput;
+  images?: ImageInput[];
   settings: GenerationSettings;
 }
 
@@ -44,7 +44,7 @@ export function toApiMessages(turns: Turn[]): ChatMessage[] {
   return answered.map((turn) => ({
     role: turn.role,
     content: turn.content,
-    ...(turn.image && { images: [turn.image] }),
+    ...(turn.images && turn.images.length > 0 && { images: turn.images }),
   }));
 }
 
@@ -66,11 +66,11 @@ export function useChat() {
   }, []);
 
   const send = useCallback(
-    async ({ backend, model, text, image, settings }: SendArgs) => {
+    async ({ backend, model, text, images, settings }: SendArgs) => {
       if (busy.current) return;
       busy.current = true;
 
-      const user: Turn = { id: nextId.current++, role: "user", content: text, reasoning: "", image };
+      const user: Turn = { id: nextId.current++, role: "user", content: text, reasoning: "", images };
       const reply: Turn = { id: nextId.current++, role: "assistant", content: "", reasoning: "" };
       const history = [...turns, user];
       setTurns([...history, reply]);

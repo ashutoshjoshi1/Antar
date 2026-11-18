@@ -21,10 +21,28 @@ storage:
   benchmarks_dir: data/benchmarks
   experiments_dir: data/experiments
 
-# Optional. Describes a remote AMD GPU host you have provisioned yourself.
-# Antar validates this profile but does not connect to it yet.
-# See configs/hardware/amd-cloud.example.yaml and docs/installation/amd-cloud.md.
+  comparisons_dir: data/comparisons
+  cloud_dir: data/cloud
+
+# Optional. The SSH host of an AMD GPU machine you provisioned yourself. Used only for
+# read-only checks (preflight, amd-smi). See configs/hardware/amd-cloud.example.yaml.
 # amd_cloud:
 #   name: my-amd-host
-#   ssh_host: gpu.example.com
+#   ssh_host: gpu.example.com      # or an alias from ~/.ssh/config
 #   ssh_user: ubuntu
+#   gpu_poll_interval_seconds: 10
+
+# Optional. The vLLM endpoint for cloud inference: the near end of an SSH tunnel.
+# The API key belongs in the environment (ANTAR_CLOUD__API_KEY), not here.
+# cloud:
+#   base_url: http://127.0.0.1:18000/v1
+#   vllm_image: vllm/vllm-openai-rocm:v0.34.0-rocm100
+#   models:                        # only needed for models outside Antar's catalog
+#     - id: my-served-name
+#       source: Org/Model
+#       modalities: [text, vision]
+
+# cloud_cost:
+#   hourly_price_usd: 0            # what your provider charges; Antar cannot look it up
+#   credit_balance_usd: 0
+#   max_experiment_minutes: 30

@@ -71,7 +71,7 @@ function ExperimentCard({ experiment, catalog }: { experiment: ExperimentRecord;
 
 function MetricCatalog({ catalog }: { catalog: ModalityInfo[] }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[34rem] border-separate border-spacing-0 text-sm">
         <thead className="text-left text-muted">
           <tr>
@@ -163,7 +163,7 @@ function History({ reports, selected, onSelect }: { reports: ReportSummary[]; se
     );
   }
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[40rem] border-separate border-spacing-0 text-sm">
         <thead className="text-left text-muted">
           <tr>
@@ -231,8 +231,8 @@ function Lab() {
                 );
                 return usable.length === 0 ? (
                   <p className="text-sm text-muted">
-                    No downloaded chat model is available. Download one on the Models page, and check
-                    that Lemonade is running.
+                    No chat model is available. Download one on the Models page and check that
+                    Lemonade is running, or connect the cloud endpoint on the AMD Cloud page.
                   </p>
                 ) : (
                   <BenchmarkForm models={usable} workloads={items} running={status === "running"} />
@@ -268,7 +268,7 @@ export function Benchmarks() {
     <>
       <PageHeader
         title="Benchmarks"
-        summary="Measure a local model on fixed prompt sets. Every number here comes from a request that actually ran, and each run is saved as a report you can export."
+        summary="Measure one model, local or cloud, on fixed prompt sets. Every number here comes from a request that actually ran, and each run is saved as a report you can export."
       />
       <Lab />
       <h2 className="mt-12 mb-4 text-lg font-semibold tracking-tight">Optimization experiments</h2>

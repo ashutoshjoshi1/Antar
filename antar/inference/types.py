@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Role = Literal["system", "user", "assistant"]
 ImageMediaType = Literal["image/png", "image/jpeg", "image/webp"]
 
-MAX_IMAGES_PER_MESSAGE = 1
+MAX_IMAGES_PER_MESSAGE = 4
 MAX_IMAGES_PER_REQUEST = 4
 MAX_MESSAGE_CHARS = 200_000
 
@@ -26,7 +26,8 @@ class ChatMessage(BaseModel):
 
     role: Role
     content: str = Field(max_length=MAX_MESSAGE_CHARS)
-    # One image per message: Lemonade documents image input, but not multi-image prompts.
+    # Whether a backend accepts more than one image per message is its own decision:
+    # vLLM documents multi-image prompts, Lemonade does not and its adapter refuses them.
     images: tuple[ImageInput, ...] = Field(default=(), max_length=MAX_IMAGES_PER_MESSAGE)
 
     @model_validator(mode="after")

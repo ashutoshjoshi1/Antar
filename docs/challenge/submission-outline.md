@@ -34,21 +34,30 @@ evidence, which model configuration is worth serving on a given device.
 - Typed, validated formats for optimization jobs, benchmarks, experiment records, and
   deployment manifests.
 - A dashboard showing all of the above from live data.
+- Text and image-understanding inference and performance benchmarks through Lemonade,
+  verified on a real server.
+- Cloud inference through vLLM on AMD GPUs, reference-answer scoring, and a
+  local-versus-cloud comparison: implemented with mocked tests, **not yet run on real AMD
+  hardware**. See [Phase 2](../phase2-amd-cloud.md).
 
 ## What must exist before submitting
 
 Tracked in [the roadmap](../ROADMAP.md). At minimum, milestones M1 and M2:
 
-- [ ] Text inference through Lemonade.
-- [ ] A performance benchmark producing real experiment records.
-- [ ] A quality evaluator on a pinned, licensed dataset.
+- [x] Text inference through Lemonade.
+- [x] A performance benchmark producing real reports (none are published yet).
+- [ ] Live verification of the cloud path on a real AMD GPU host, and a first real
+      local-versus-cloud report.
+- [ ] A quality evaluator on a pinned, licensed dataset. (Reference-answer scoring on small
+      prompt sets written for Antar exists.)
 - [ ] One complete baseline-versus-optimized comparison, reproducible from a config file.
 - [ ] Results recorded on named hardware, with methodology.
 
 ## Deliverables to prepare
 
 - [ ] Public repository with installation instructions that work from a clean machine.
-- [ ] Demo video — see [the storyboard](demo-storyboard.md).
+- [ ] Demo video — see [the storyboard](demo-storyboard.md) and the
+      [Phase 2 demo script](phase2-demo.md).
 - [ ] Written description: problem, approach, how Lemonade is used, limitations.
 - [ ] Evaluation write-up — see [the methodology](evaluation-methodology.md).
 - [ ] Whatever else the official rules require.

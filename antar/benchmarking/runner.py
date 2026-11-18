@@ -25,6 +25,8 @@ from antar.benchmarking.report import (
 from antar.benchmarking.workloads import BenchmarkPrompt, Workload, get_workload, load_image
 from antar.core.errors import AntarError
 from antar.core.types import utc_now
+from antar.evaluation.scoring import Score, score_response
+from antar.hardware.gpu import GpuSample
 from antar.hardware.profile import HardwareProfile
 from antar.hardware.telemetry import Unavailable
 from antar.inference.types import (
@@ -34,6 +36,7 @@ from antar.inference.types import (
     ChatResult,
     GenerationSettings,
 )
+from antar.models.spec import ExecutionLocation
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,8 @@ class BenchmarkEnvironment(BaseModel):
     git_commit: str | None = None
     missing_telemetry: tuple[Unavailable, ...] = ()
     simulated: bool = False
+    execution: ExecutionLocation | None = None
+    remote_gpus: GpuSample | None = None
 
 
 class BenchmarkProgress(BaseModel):
@@ -180,6 +185,15 @@ class BenchmarkRunner:
                 error=str(exc),
             )
         else:
+            score: Score | None = None
+            if prompt.expect is not None:
+                # Scoring may run model-written code in a subprocess; keep it off the event loop.
+                score = await asyncio.to_thread(
+                    score_response,
+                    prompt.expect,
+                    result.content,
+                    allow_code_execution=self._config.allow_code_execution,
+                )
             record = RunRecord(
                 index=index,
                 workload=workload.id,
@@ -190,6 +204,9 @@ class BenchmarkRunner:
                 response=result.content,
                 finish_reason=result.finish_reason,
                 json_valid=is_valid_json(result.content) if workload.check == "json" else None,
+                score=score.value if score else None,
+                score_method=score.method if score else None,
+                score_detail=score.detail if score else None,
             )
         self._runs.append(record)
         self._completed += 1
@@ -248,6 +265,8 @@ class BenchmarkRunner:
             backend_version=self._environment.backend_version,
             model=self._environment.model,
             hardware=self._environment.hardware,
+            execution=self._environment.execution,
+            remote_gpus=self._environment.remote_gpus,
             config=config,
             workloads=workloads,
             cold_start=cold_start,

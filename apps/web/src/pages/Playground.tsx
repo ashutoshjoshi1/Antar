@@ -6,7 +6,7 @@ export function Playground() {
     <>
       <PageHeader
         title="Playground"
-        summary="Chat with a model running on your local Lemonade server. Replies stream as they are generated, with the measurements Lemonade reports for each one."
+        summary="Chat with a local model on Lemonade or a cloud model on your AMD endpoint. Replies stream as they are generated, with the measurements each backend reports and where the model ran."
       />
       <ChatWorkspace mode="text" />
     </>

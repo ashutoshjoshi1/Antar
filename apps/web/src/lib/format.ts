@@ -26,7 +26,8 @@ export function titleCase(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-const UNAVAILABLE = "Unavailable";
+/** How a value the source did not report is shown. Never a zero. */
+export const UNAVAILABLE = "Unavailable";
 
 /** Milliseconds as ms below one second, otherwise seconds. */
 export function formatDuration(ms: number | null | undefined): string {
@@ -43,6 +44,47 @@ export function formatCount(value: number | null | undefined, unit = ""): string
 export function formatPercent(fraction: number | null | undefined): string {
   if (fraction === null || fraction === undefined) return UNAVAILABLE;
   return `${(fraction * 100).toFixed(fraction > 0 && fraction < 0.1 ? 1 : 0)}%`;
+}
+
+export function formatMoney(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return UNAVAILABLE;
+  const digits = Math.abs(usd) > 0 && Math.abs(usd) < 1 ? 4 : 2;
+  return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: digits })}`;
+}
+
+const PARAMETER_UNITS = [
+  [1e12, "T"],
+  [1e9, "B"],
+  [1e6, "M"],
+  [1e3, "K"],
+] as const;
+
+/** A published parameter count, e.g. 8.2B. Null stays null: sizes are never guessed. */
+export function formatParameters(count: number | null): string | null {
+  if (count === null) return null;
+  for (const [step, suffix] of PARAMETER_UNITS) {
+    if (count >= step) {
+      const value = count / step;
+      return `${value.toFixed(value >= 100 ? 0 : 1)}${suffix}`;
+    }
+  }
+  return String(count);
+}
+
+/** Whole seconds as h, m, s. Two-digit minutes and seconds keep a ticking value from jumping. */
+export function formatElapsed(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return UNAVAILABLE;
+  const total = Math.max(0, Math.floor(seconds));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours > 0
+    ? `${hours} h ${pad(minutes)} m ${pad(total % 60)} s`
+    : `${minutes} m ${pad(total % 60)} s`;
+}
+
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString();
 }
 
 export interface MetricDelta {

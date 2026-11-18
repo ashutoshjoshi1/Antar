@@ -38,6 +38,17 @@ class BenchmarkConfig(BaseModel):
             "measuring load time and a cold first request."
         ),
     )
+    allow_code_execution: bool = Field(
+        default=False,
+        description=(
+            "Run model-written code to score the unit-tested coding workload. Off by default: "
+            "the code runs in a separate process with a time limit, not in a security sandbox."
+        ),
+    )
+    confirm_cloud_usage: bool = Field(
+        default=False,
+        description="Must be true to benchmark a cloud model: the run keeps a paid machine busy.",
+    )
     # Requests run one at a time so each measurement has the hardware to itself.
     concurrency: Literal[1] = 1
 

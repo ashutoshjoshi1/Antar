@@ -55,9 +55,10 @@ def test_unsupported_media_type_is_rejected_by_the_schema() -> None:
         _image(PNG, "image/gif")
 
 
-def test_only_one_image_per_message() -> None:
+def test_a_message_carries_a_bounded_number_of_images() -> None:
+    assert len(ChatMessage(role="user", content="compare", images=(_image(PNG),) * 2).images) == 2
     with pytest.raises(ValidationError):
-        ChatMessage(role="user", content="compare", images=(_image(PNG), _image(PNG)))
+        ChatMessage(role="user", content="compare", images=(_image(PNG),) * 5)
 
 
 def test_only_user_messages_can_carry_images() -> None:

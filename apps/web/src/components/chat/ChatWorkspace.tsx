@@ -3,14 +3,16 @@ import { Link } from "react-router";
 
 import { useModels, useSettings } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
-import { ACCEPT_ATTRIBUTE, ImageError, readImage, toDataUrl } from "../../lib/image";
+import { ImageError, readImage, toDataUrl } from "../../lib/image";
+import { imageLimit, metricsSource, modelKey, usableModels } from "../../lib/models";
+import type { ChatMode as Mode } from "../../lib/models";
 import type { GenerationSettings, ImageInput, ModelSpec } from "../../lib/types";
 import { useChat } from "../../lib/useChat";
-import { Panel, QueryView } from "../ui";
+import { fieldClass, LocationBadge, Notice, Panel, QueryView } from "../ui";
+import { ImagePicker } from "./ImagePicker";
 import { Elapsed, MetricsPanel } from "./MetricsPanel";
+import { ModelPicker } from "./ModelPicker";
 import { Transcript } from "./Transcript";
-
-type Mode = "text" | "vision";
 
 const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const SUGGESTION_COUNT = 3;
@@ -29,19 +31,6 @@ const EXAMPLES: Record<Mode, readonly string[]> = {
     "Summarize the contents of this chart.",
   ],
 };
-
-/** Real, downloaded Lemonade models that can serve this mode, loaded ones first. */
-export function usableModels(models: ModelSpec[], mode: Mode): ModelSpec[] {
-  return models
-    .filter(
-      (model) =>
-        !model.simulated &&
-        model.downloaded === true &&
-        model.tasks.includes("chat") &&
-        (mode === "text" || model.modalities.includes("vision")),
-    )
-    .sort((a, b) => Number(b.loaded === true) - Number(a.loaded === true) || a.id.localeCompare(b.id));
-}
 
 function downloadSuggestions(models: ModelSpec[], mode: Mode): ModelSpec[] {
   return models
@@ -90,38 +79,45 @@ function NoModels({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
   );
 }
 
-const fieldClass = "w-full rounded-md border border-line bg-ground px-3 py-2 text-sm placeholder:text-faint";
+interface WorkspaceProps {
+  models: ModelSpec[];
+  mode: Mode;
+  /** Something the user should know about a backend that is not answering. */
+  notice?: string | null;
+}
 
-function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
+function Workspace({ models, mode, notice }: WorkspaceProps) {
   const settingsQuery = useSettings();
   const maxImageBytes = settingsQuery.data?.inference.max_image_bytes ?? DEFAULT_MAX_IMAGE_BYTES;
   const chat = useChat();
-  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [selectedKey, setSelectedKey] = useState(models[0] ? modelKey(models[0]) : "");
   const [draft, setDraft] = useState("");
-  const [image, setImage] = useState<ImageInput | null>(null);
+  const [images, setImages] = useState<ImageInput[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [maxTokens, setMaxTokens] = useState(512);
   const [temperature, setTemperature] = useState(0.7);
   const [thinking, setThinking] = useState(true);
 
-  const model = models.find((candidate) => candidate.id === modelId) ?? models[0];
+  const model = models.find((candidate) => modelKey(candidate) === selectedKey) ?? models[0];
+  const cloud = model?.location === "cloud";
+  const limit = imageLimit(model);
   const generating = chat.status === "generating";
   const started = chat.turns.length > 0;
   // In vision mode the first question must carry an image; later ones reuse it from history.
-  const needsImage = mode === "vision" && !started && !image;
+  const needsImage = mode === "vision" && !started && images.length === 0;
   const canSend = Boolean(model) && draft.trim() !== "" && !generating && !needsImage;
   const lastReply = chat.turns.findLast((turn) => turn.role === "assistant" && Boolean(turn.metrics || turn.stopped));
 
   const send = (text: string) => {
     if (!model || !text.trim() || generating || needsImage) return;
     // Sent for every model: some reason without being labelled as reasoning models,
-    // and Lemonade ignores the option for models that cannot.
+    // and the backends ignore the option for models that cannot.
     const settings: GenerationSettings = { max_tokens: maxTokens, temperature, enable_thinking: thinking };
     void chat.send({
       backend: model.backend,
       model: model.id,
       text: text.trim(),
-      image: !started && image ? image : undefined,
+      images: !started && images.length > 0 ? images : undefined,
       settings,
     });
     setDraft("");
@@ -132,7 +128,8 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
     try {
       const loaded = await readImage(file, maxImageBytes);
       chat.reset();
-      setImage(loaded);
+      // A backend that takes one image replaces it; one that takes several adds to them.
+      setImages((current) => (limit === 1 ? [loaded] : [...current, loaded].slice(0, limit)));
       setImageError(null);
     } catch (caught) {
       setImageError(caught instanceof ImageError ? caught.message : "That file could not be read.");
@@ -141,26 +138,39 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
 
   const startOver = () => {
     chat.reset();
-    setImage(null);
+    setImages([]);
     setImageError(null);
   };
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="min-w-0 space-y-4">
+        {notice && <Notice>{notice}</Notice>}
         <section className="flex min-h-[22rem] flex-col rounded-lg border border-line bg-surface">
+          {model && (
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-2.5 text-sm" aria-label="Active model">
+              <LocationBadge location={model.location} detail={model.provider} />
+              <span className="font-mono text-xs break-all text-muted">{model.id}</span>
+            </p>
+          )}
           <div className="max-h-[60vh] flex-1 overflow-y-auto">
             <Transcript
               turns={chat.turns}
               status={chat.status}
+              cloud={cloud}
               empty={
                 <>
-                  {mode === "vision" && image && (
-                    <img
-                      src={toDataUrl(image)}
-                      alt="Selected for analysis"
-                      className="mb-4 max-h-64 rounded-md border border-line"
-                    />
+                  {mode === "vision" && images.length > 0 && (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {images.map((image, position) => (
+                        <img
+                          key={position}
+                          src={toDataUrl(image)}
+                          alt="Selected for analysis"
+                          className="max-h-64 rounded-md border border-line"
+                        />
+                      ))}
+                    </div>
                   )}
                   <p className="text-sm text-muted">
                     {needsImage ? "Choose an image, then ask about it." : "Try one of these, or write your own."}
@@ -227,7 +237,7 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
                 <button
                   type="submit"
                   disabled={!canSend}
-                  className="rounded-md bg-local px-4 py-2 text-sm font-medium text-ground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className={`rounded-md px-4 py-2 text-sm font-medium text-ground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 ${cloud ? "bg-cloud" : "bg-local"}`}
                 >
                   Send
                 </button>
@@ -248,61 +258,30 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
       </div>
 
       <aside className="space-y-4">
-        <Panel title="Model">
-          <label htmlFor="model" className="sr-only">
-            Model
-          </label>
-          <select
-            id="model"
-            value={model?.id ?? ""}
-            disabled={generating}
-            onChange={(event) => {
-              setModelId(event.target.value);
-              startOver();
-            }}
-            className={fieldClass}
-          >
-            {models.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.id}
-                {candidate.loaded ? " (loaded)" : ""}
-              </option>
-            ))}
-          </select>
-          {model && (
-            <p className="mt-2 text-xs text-muted">
-              {[model.quantization, formatBytes(model.size_bytes), model.runtime].filter(Boolean).join(", ")}
-              {model.loaded === false && ". Not in memory yet, so the first reply includes load time."}
-            </p>
-          )}
-        </Panel>
+        <ModelPicker
+          models={models}
+          model={model}
+          disabled={generating}
+          onChange={(key) => {
+            setSelectedKey(key);
+            startOver();
+          }}
+        />
 
         {mode === "vision" && (
-          <Panel title="Image">
-            {image && <img src={toDataUrl(image)} alt="Selected for analysis" className="mb-3 max-h-40 rounded-md border border-line" />}
-            <label className="block cursor-pointer rounded-md border border-dashed border-line px-3 py-2.5 text-center text-sm text-muted transition-colors hover:border-muted hover:text-ink focus-within:outline-2 focus-within:outline-local">
-              {image ? "Choose a different image" : "Choose an image"}
-              <input
-                type="file"
-                accept={ACCEPT_ATTRIBUTE}
-                disabled={generating}
-                className="sr-only"
-                onChange={(event) => {
-                  void chooseImage(event.target.files?.[0]);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-            {imageError && (
-              <p role="alert" className="mt-2 text-sm text-down">
-                {imageError}
-              </p>
-            )}
-            <p className="mt-2 text-xs text-faint">
-              PNG, JPEG, or WebP up to {Math.floor(maxImageBytes / 1024 / 1024)} MB. The image goes to your
-              local Lemonade server only and is not saved.
-            </p>
-          </Panel>
+          <ImagePicker
+            images={images}
+            limit={limit}
+            cloud={cloud}
+            maxBytes={maxImageBytes}
+            disabled={generating}
+            error={imageError}
+            onChoose={(file) => void chooseImage(file)}
+            onRemove={(position) => {
+              chat.reset();
+              setImages((current) => current.filter((_, index) => index !== position));
+            }}
+          />
         )}
 
         <Panel title="Generation settings">
@@ -333,7 +312,7 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
                 step={0.1}
                 value={temperature}
                 onChange={(event) => setTemperature(Number(event.target.value))}
-                className="w-full accent-(--color-local)"
+                className={`w-full ${cloud ? "accent-(--color-cloud)" : "accent-(--color-local)"}`}
               />
             </div>
             <div>
@@ -342,7 +321,7 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
                   type="checkbox"
                   checked={thinking}
                   onChange={(event) => setThinking(event.target.checked)}
-                  className="accent-(--color-local)"
+                  className={cloud ? "accent-(--color-cloud)" : "accent-(--color-local)"}
                 />
                 Let the model reason first
               </label>
@@ -354,7 +333,7 @@ function Workspace({ models, mode }: { models: ModelSpec[]; mode: Mode }) {
         </Panel>
 
         <Panel title="Last response">
-          <MetricsPanel turn={lastReply} />
+          <MetricsPanel turn={lastReply} source={metricsSource(model)} />
         </Panel>
       </aside>
     </div>
@@ -369,7 +348,8 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
       {(inventory) => {
         const usable = usableModels(inventory.models, mode);
         const lemonade = inventory.sources.find((source) => source.backend === "lemonade");
-        if (lemonade && lemonade.availability !== "available") {
+        const lemonadeDown = lemonade !== undefined && lemonade.availability !== "available";
+        if (usable.length === 0 && lemonade && lemonadeDown) {
           return (
             <Panel>
               <p className="font-medium text-down">Lemonade is not reachable</p>
@@ -385,7 +365,12 @@ export function ChatWorkspace({ mode }: { mode: Mode }) {
           <NoModels models={inventory.models} mode={mode} />
         ) : (
           // Remounting when the model list changes keeps the selection valid.
-          <Workspace key={usable.map((model) => model.id).join("|")} models={usable} mode={mode} />
+          <Workspace
+            key={usable.map(modelKey).join("|")}
+            models={usable}
+            mode={mode}
+            notice={lemonadeDown ? `Lemonade is not reachable, so only cloud models are listed. ${lemonade.detail}` : null}
+          />
         );
       }}
     </QueryView>

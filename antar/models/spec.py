@@ -1,8 +1,33 @@
 """Model specification: how Antar describes a model regardless of where it runs."""
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from antar.core.types import Modality, Task
+
+
+class ExecutionLocation(StrEnum):
+    """Where a model's computation actually happens."""
+
+    LOCAL = "local"
+    CLOUD = "cloud"
+    MOCK = "mock"
+
+
+class ModelState(StrEnum):
+    """How far a model is from answering a request, as far as the backend reports.
+
+    ``CONFIGURED``  Declared in Antar's configuration or catalog; the backend has not reported it.
+    ``DISCOVERED``  Listed by the backend, but its weights are not on that backend.
+    ``INSTALLED``   Weights are present on the backend; the model is not in memory.
+    ``LOADED``      In memory and able to answer requests now.
+    """
+
+    CONFIGURED = "configured"
+    DISCOVERED = "discovered"
+    INSTALLED = "installed"
+    LOADED = "loaded"
 
 
 class ModelRef(BaseModel):
@@ -48,10 +73,21 @@ class ModelSpec(BaseModel):
         default=None, description="Whether the model is in memory right now, if reported."
     )
     quantization: str | None = Field(
-        default=None, description="Quantization variant named by the checkpoint, e.g. Q4_K_M."
+        default=None, description="Quantization variant or weight precision, e.g. Q4_K_M or BF16."
     )
     context_length: int | None = Field(default=None, ge=0)
     labels: tuple[str, ...] = Field(default=(), description="Backend-provided tags, verbatim.")
     simulated: bool = Field(
         default=False, description="True for mock models that produce no real inference."
+    )
+    location: ExecutionLocation | None = Field(
+        default=None, description="Where inference runs. None when the backend did not say."
+    )
+    provider: str | None = Field(
+        default=None, description="Who serves the model, e.g. 'lemonade' or 'vllm'."
+    )
+    state: ModelState | None = None
+    family: str | None = None
+    parameter_count: int | None = Field(
+        default=None, ge=0, description="From the model's published metadata, never estimated."
     )

@@ -88,9 +88,10 @@ explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m 'not lemonade_live'"
+addopts = "-ra --strict-markers -m 'not lemonade_live and not amd_live'"
 markers = [
     "lemonade_live: needs a running Lemonade server with models; run with -m lemonade_live",
+    "amd_live: needs a running vLLM endpoint on an AMD GPU host; run with -m amd_live",
 ]
 
 [tool.coverage.run]

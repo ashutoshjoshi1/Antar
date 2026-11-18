@@ -28,7 +28,7 @@ from antar.inference.types import (
     ChatResult,
     InferenceMetrics,
 )
-from antar.models.spec import ModelSpec
+from antar.models.spec import ExecutionLocation, ModelSpec, ModelState
 
 _MOCK_MODELS: tuple[ModelSpec, ...] = (
     ModelSpec(
@@ -41,6 +41,9 @@ _MOCK_MODELS: tuple[ModelSpec, ...] = (
         labels=("mock", "teacher"),
         downloaded=True,
         simulated=True,
+        location=ExecutionLocation.MOCK,
+        provider="mock",
+        state=ModelState.LOADED,
     ),
     ModelSpec(
         id="mock/echo-small",
@@ -52,6 +55,9 @@ _MOCK_MODELS: tuple[ModelSpec, ...] = (
         labels=("mock", "student"),
         downloaded=True,
         simulated=True,
+        location=ExecutionLocation.MOCK,
+        provider="mock",
+        state=ModelState.LOADED,
     ),
 )
 

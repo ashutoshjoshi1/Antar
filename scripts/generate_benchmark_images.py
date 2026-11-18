@@ -1,4 +1,4 @@
-"""Generate the sample images used by the vision benchmark workload.
+"""Generate the sample images used by the vision benchmark workloads.
 
 The images are drawn from scratch by this script (no third-party content) and
 are dedicated to the public domain under CC0 1.0. Pure standard library, so it
@@ -86,11 +86,87 @@ def traffic_light(x: int, y: int) -> Color:
     return WHITE
 
 
+# A 5x7 bitmap font for the characters the document and diagram images use.
+FONT: dict[str, tuple[str, ...]] = {
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "C": ("01110", "10001", "10000", "10000", "10000", "10001", "01110"),
+    "D": ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "G": ("01110", "10001", "10000", "10111", "10001", "10001", "01110"),
+    "I": ("11111", "00100", "00100", "00100", "00100", "00100", "11111"),
+    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "W": ("10001", "10001", "10001", "10101", "10101", "11011", "10001"),
+    "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
+    "6": ("00110", "01000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
+    ".": ("00000", "00000", "00000", "00000", "00000", "01100", "01100"),
+    " ": ("00000",) * 7,
+}
+
+# Text shown in document.png. The reference answers in the workloads are these strings.
+DOCUMENT_LINES = ("INVOICE 4821", "DATE 2026-03-14", "TOTAL 137.50")
+# Boxes in diagram.png, left to right; an arrow joins each box to the next.
+DIAGRAM_BOXES = ("API", "CPU", "GPU")
+
+
+def text_pixel(x: int, y: int, text: str, left: int, top: int, scale: int) -> bool:
+    """Whether (x, y) is an inked pixel of ``text`` drawn at (left, top)."""
+    column, row = (x - left) // scale, (y - top) // scale
+    if x < left or y < top or row >= 7:
+        return False
+    index, offset = divmod(column, 6)
+    if index >= len(text) or offset >= 5:
+        return False
+    return FONT[text[index]][row][offset] == "1"
+
+
+def document(x: int, y: int) -> Color:
+    """Three lines of dark text on white, like a scanned receipt."""
+    for line_number, line in enumerate(DOCUMENT_LINES):
+        if text_pixel(x, y, line, 14, 50 + line_number * 60, 2 if len(line) > 12 else 3):
+            return BLACK
+    return WHITE
+
+
+def diagram(x: int, y: int) -> Color:
+    """Three labelled boxes in a row, joined left to right by arrows."""
+    for index, label in enumerate(DIAGRAM_BOXES):
+        left = 10 + index * 86
+        if text_pixel(x, y, label, left + 9, 117, 3):
+            return BLACK
+        inside = left <= x <= left + 64 and 100 <= y <= 156
+        if inside and (x in (left, left + 1, left + 63, left + 64) or y in (100, 101, 155, 156)):
+            return BLUE
+        if index < len(DIAGRAM_BOXES) - 1:
+            start, end = left + 65, left + 85
+            if start <= x <= end and y in (127, 128, 129):
+                return BLACK
+            if end - 7 <= x <= end and abs(y - 128) <= end - x:
+                return BLACK
+    return WHITE
+
+
 if __name__ == "__main__":
     ASSETS.mkdir(parents=True, exist_ok=True)
     for name, painter in (
         ("shapes.png", shapes),
         ("bar-chart.png", bar_chart),
         ("traffic-light.png", traffic_light),
+        ("document.png", document),
+        ("diagram.png", diagram),
     ):
         write_png(ASSETS / name, painter)

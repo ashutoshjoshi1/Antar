@@ -24,6 +24,7 @@ from antar.backends.base import (
 )
 from antar.backends.lemonade.client import (
     LemonadeClient,
+    LemonadeCloudProvider,
     LemonadeCompletion,
     LemonadeModel,
     LemonadeStats,
@@ -37,7 +38,7 @@ from antar.core.errors import (
 )
 from antar.core.types import Modality, Task
 from antar.inference.types import ChatDone, ChatEvent, ChatRequest, ChatResult
-from antar.models.spec import ModelSpec
+from antar.models.spec import ExecutionLocation, ModelSpec, ModelState
 
 # Lemonade model labels -> Antar (modality, task). Labels come from the model
 # list reference (docs/api/openai.md). Labels not listed here are kept verbatim
@@ -61,6 +62,10 @@ _DEPLOYMENT_LABELS = frozenset(_LABEL_MAP) - {"vision", "edit"}
 _RECIPE_DEFAULT_LABEL = {"llamacpp": "chat"}
 
 _BYTES_PER_GB = 1_000_000_000
+
+# Models Lemonade relays to a registered cloud provider carry this recipe. They have no
+# local weights, so there is nothing to download and nothing Lemonade could fetch implicitly.
+CLOUD_RECIPE = "cloud"
 
 # Quantization variant as named in a checkpoint, e.g. "repo:Q4_K_M" or "x-Q4_0.gguf".
 _QUANTIZATION = re.compile(
@@ -107,6 +112,22 @@ def to_model_spec(model: LemonadeModel, loaded: frozenset[str] | None = None) ->
     if not effective & _DEPLOYMENT_LABELS and model.recipe in _RECIPE_DEFAULT_LABEL:
         effective.add(_RECIPE_DEFAULT_LABEL[model.recipe])
 
+    is_cloud = model.recipe == CLOUD_RECIPE
+    if is_cloud:
+        # Lemonade's cloud discovery keeps only chat-capable models.
+        effective.add("chat")
+    is_loaded = model.id in loaded if loaded is not None else None
+    if is_cloud:
+        state: ModelState | None = ModelState.LOADED
+    elif is_loaded:
+        state = ModelState.LOADED
+    elif model.downloaded is True:
+        state = ModelState.INSTALLED
+    elif model.downloaded is False:
+        state = ModelState.DISCOVERED
+    else:
+        state = None
+
     pairs = [_LABEL_MAP[label] for label in sorted(effective) if label in _LABEL_MAP]
     modalities = tuple(dict.fromkeys(modality for modality, _ in pairs))
     tasks = tuple(dict.fromkeys(task for _, task in pairs))
@@ -120,10 +141,13 @@ def to_model_spec(model: LemonadeModel, loaded: frozenset[str] | None = None) ->
         runtime=model.recipe,
         size_bytes=round(model.size * _BYTES_PER_GB) if model.size is not None else None,
         downloaded=model.downloaded,
-        loaded=model.id in loaded if loaded is not None else None,
+        loaded=is_loaded,
         quantization=parse_quantization(model.checkpoint),
         context_length=model.max_context_window,
         labels=labels,
+        location=ExecutionLocation.CLOUD if is_cloud else ExecutionLocation.LOCAL,
+        provider=model.cloud_provider if is_cloud else "lemonade",
+        state=state,
     )
 
 
@@ -191,6 +215,35 @@ class LemonadeBackend(RuntimeBackend):
         loaded = frozenset(model.model_name for model in health.all_models_loaded)
         return tuple(to_model_spec(model, loaded) for model in models)
 
+    async def cloud_providers(self) -> tuple[LemonadeCloudProvider, ...] | None:
+        return await self._client.cloud_providers()
+
+    async def register_cloud_provider(
+        self, provider: str, base_url: str, api_key: str | None
+    ) -> LemonadeCloudProvider:
+        """Register an OpenAI-compatible endpoint with Lemonade's own cloud routing.
+
+        Lemonade then lists and relays the endpoint's models itself; Antar adds
+        no routing of its own. Only ever called on an explicit, confirmed action.
+        """
+        if await self._client.cloud_providers() is None:
+            raise CapabilityNotSupportedError(
+                "This Lemonade version does not report cloud provider support."
+            )
+        await self._client.install_cloud_provider(provider, base_url)
+        if api_key:
+            await self._client.set_cloud_provider_key(
+                provider, api_key, allow_insecure_http=base_url.startswith("http://")
+            )
+        registered = await self._client.cloud_providers() or ()
+        match = next((item for item in registered if item.name == provider), None)
+        if match is None:
+            raise BackendRequestError(f"Lemonade did not keep the provider '{provider}'.")
+        return match
+
+    async def remove_cloud_provider(self, provider: str) -> None:
+        await self._client.uninstall_cloud_provider(provider)
+
     async def stats(self) -> LemonadeStats:
         return await self._client.stats()
 
@@ -204,7 +257,7 @@ class LemonadeBackend(RuntimeBackend):
         spec = next((model for model in models if model.id == model_id), None)
         if spec is None:
             raise ModelNotFoundError(f"Lemonade has no model named '{model_id}'.")
-        if spec.downloaded is not True:
+        if spec.runtime != CLOUD_RECIPE and spec.downloaded is not True:
             raise ModelNotDownloadedError(
                 f"'{model_id}' is not downloaded. Download it from the Models page first."
             )
@@ -251,11 +304,20 @@ class LemonadeBackend(RuntimeBackend):
             simulated=False,
         )
 
+    @staticmethod
+    def _single_image_messages(request: ChatRequest) -> None:
+        if any(len(message.images) > 1 for message in request.messages):
+            raise CapabilityNotSupportedError(
+                "Lemonade documents one image per message. Send the images in separate messages."
+            )
+
     async def chat(self, request: ChatRequest) -> ChatResult:
+        self._single_image_messages(request)
         await self._require_downloaded(request.model, vision=request.has_images)
         return self._result(request, await self._client.chat(request))
 
     async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatEvent, None]:
+        self._single_image_messages(request)
         await self._require_downloaded(request.model, vision=request.has_images)
         async for event in self._client.chat_stream(request):
             if isinstance(event, LemonadeCompletion):

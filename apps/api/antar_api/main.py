@@ -14,15 +14,25 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from antar import __version__
+from antar.backends.amd_cloud.cost import CloudSessionStore
+from antar.backends.amd_cloud.ssh import RemoteRunner
 from antar.backends.base import RuntimeBackend
-from antar.backends.registry import build_backends
-from antar.benchmarking.manager import BenchmarkManager
+from antar.backends.registry import build_backends, build_remote_runner
+from antar.benchmarking.manager import BenchmarkManager, JobSlot
 from antar.benchmarking.store import BenchmarkStore
+from antar.comparison.manager import ComparisonManager
+from antar.comparison.store import ComparisonStore
 from antar.config.settings import Settings, get_settings
 from antar.core.errors import AntarError
 from antar.inference.service import InferenceService
 from antar.inference.types import MAX_IMAGES_PER_REQUEST
-from antar_api import routes, routes_benchmarks, routes_inference
+from antar_api import (
+    routes,
+    routes_benchmarks,
+    routes_cloud,
+    routes_comparisons,
+    routes_inference,
+)
 from antar_api.errors import GENERIC_MESSAGE, STATUS_BY_ERROR
 
 logger = logging.getLogger(__name__)
@@ -37,10 +47,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     manager: BenchmarkManager = app.state.benchmarks
     if manager.cancel():
         await manager.wait()
+    comparisons: ComparisonManager = app.state.comparisons
+    if comparisons.cancel("The Antar API shut down."):
+        await comparisons.wait()
 
 
 def create_app(
-    settings: Settings | None = None, backends: Sequence[RuntimeBackend] | None = None
+    settings: Settings | None = None,
+    backends: Sequence[RuntimeBackend] | None = None,
+    remote_runner: RemoteRunner | None = None,
 ) -> FastAPI:
     resolved = settings or get_settings()
     app = FastAPI(
@@ -55,12 +70,30 @@ def create_app(
     app.state.backends = runtime
     app.state.inference = InferenceService(runtime, max_image_bytes=resolved.max_image_bytes)
     app.state.benchmark_store = store
-    app.state.benchmarks = BenchmarkManager(runtime, store)
+    slot = JobSlot()
+    benchmarks = BenchmarkManager(runtime, store, slot)
+    app.state.benchmarks = benchmarks
+    sessions = CloudSessionStore(resolved.storage.cloud_dir, resolved.cloud_cost)
+    comparison_store = ComparisonStore(resolved.storage.comparisons_dir)
+    profile = resolved.amd_cloud
+    app.state.cloud_sessions = sessions
+    app.state.remote_runner = remote_runner or build_remote_runner(resolved)
+    app.state.comparison_store = comparison_store
+    app.state.comparisons = ComparisonManager(
+        runtime,
+        benchmarks,
+        comparison_store,
+        slot,
+        cost=resolved.cloud_cost,
+        session=sessions.load,
+        vllm_image=resolved.cloud.vllm_image if resolved.cloud else None,
+        gpu_interval_seconds=profile.gpu_poll_interval_seconds if profile else 10.0,
+    )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved.cors_origins),
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -91,6 +124,8 @@ def create_app(
     app.include_router(routes_inference.router)
     app.include_router(routes.router)
     app.include_router(routes_benchmarks.router)
+    app.include_router(routes_cloud.router)
+    app.include_router(routes_comparisons.router)
     return app
 
 

@@ -250,12 +250,37 @@ def test_builtin_workloads_cover_three_text_tasks_and_vision() -> None:
     text = [workload.id for workload in WORKLOADS if workload.modality is Modality.TEXT]
     vision = [workload for workload in WORKLOADS if workload.modality is Modality.VISION]
 
-    assert text == ["general_qa", "code_generation", "structured_json"]
-    assert len(vision) == 1
-    assert all(prompt.image for prompt in vision[0].prompts)
+    assert text[:3] == ["general_qa", "code_generation", "structured_json"]
+    assert [workload.id for workload in vision] == ["vision_basic", "vision_reference", "ocr_basic"]
+    assert all(prompt.image for workload in vision for prompt in workload.prompts)
+
+
+def test_every_scored_workload_records_its_license_and_provenance() -> None:
+    scored = [workload for workload in WORKLOADS if workload.scored]
+
+    assert {workload.id for workload in scored} == {
+        "qa_exact",
+        "reasoning_basic",
+        "json_schema",
+        "code_tests",
+        "vision_reference",
+        "ocr_basic",
+    }
+    assert all(workload.license and workload.provenance for workload in scored)
+    # A scored workload has a reference for every prompt, so its accuracy covers all of it.
+    assert all(prompt.expect for workload in scored for prompt in workload.prompts)
 
 
 def test_bundled_vision_images_are_valid_pngs() -> None:
+    images = {
+        prompt.image
+        for workload in WORKLOADS
+        for prompt in workload.prompts
+        if prompt.image is not None
+    }
+    assert len(images) == 5
+    for image in images:
+        validate_image(load_image(image), max_bytes=100_000)
     for prompt in get_workload("vision_basic").prompts:
         assert prompt.image is not None
         validate_image(load_image(prompt.image), max_bytes=100_000)

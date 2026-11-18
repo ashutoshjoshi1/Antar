@@ -6,30 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { requestCount } from "./components/benchmarks/BenchmarkForm";
-import { usableModels } from "./components/chat/ChatWorkspace";
-import type { ModelSpec, Workload } from "./lib/types";
-
-function model(overrides: Partial<ModelSpec>): ModelSpec {
-  return {
-    id: "Qwen3-1.7B-GGUF",
-    name: "Qwen3-1.7B-GGUF",
-    backend: "lemonade",
-    modalities: ["text"],
-    tasks: ["chat"],
-    revision: null,
-    checkpoint: "unsloth/Qwen3-1.7B-GGUF:Q4_0",
-    runtime: "llamacpp",
-    size_bytes: 984_000_000,
-    license: null,
-    downloaded: true,
-    loaded: true,
-    quantization: "Q4_0",
-    context_length: 40960,
-    labels: ["chat", "reasoning"],
-    simulated: false,
-    ...overrides,
-  };
-}
+import { usableModels } from "./lib/models";
+import type { ModelSpec } from "./lib/types";
+import { model, SETTINGS, WORKLOADS } from "./test/fixtures";
 
 const TEXT = model({});
 const VLM_CATALOG = model({
@@ -41,13 +20,8 @@ const VLM_CATALOG = model({
   size_bytes: 3_330_000_000,
   labels: ["chat", "vision"],
 });
-const MOCK = model({ id: "mock/echo-small", backend: "mock", simulated: true });
+const MOCK = model({ id: "mock/echo-small", backend: "mock", simulated: true, location: "mock", provider: "mock" });
 const SOURCE_UP = { backend: "lemonade", display_name: "Lemonade (local)", availability: "available", model_count: 2, detail: "Connected." };
-
-const WORKLOADS: Workload[] = [
-  { id: "general_qa", name: "General question answering", description: "Short questions.", modality: "text", version: "1", check: null, prompts: [1, 2, 3, 4].map((n) => ({ id: `p${n}`, text: "?", image: null })) },
-  { id: "vision_basic", name: "Basic image understanding", description: "Images.", modality: "vision", version: "1", check: null, prompts: [1, 2, 3].map((n) => ({ id: `v${n}`, text: "?", image: "x.png" })) },
-];
 
 const RESULT = {
   backend: "lemonade", model: TEXT.id, content: "Hello there", reasoning: "Greet back.", finish_reason: "stop", simulated: false,
@@ -64,7 +38,7 @@ function setup(path: string, routes: Record<string, unknown>, streamBody?: strin
   const calls: Calls = { posts: [] };
   const base: Record<string, unknown> = {
     "/health": { status: "ok", version: "0.1.0", time: "" },
-    "/api/v1/settings": { inference: { max_image_bytes: 8 * 1024 * 1024, generation_timeout_seconds: 300 }, storage: {} },
+    "/api/v1/settings": SETTINGS,
     "/api/v1/models/downloads": { downloads: [] },
     "/api/v1/benchmarks/workloads": { workloads: WORKLOADS },
     "/api/v1/benchmarks": { benchmarks: [] },

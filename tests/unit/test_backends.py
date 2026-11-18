@@ -10,7 +10,10 @@ from antar.backends.base import Availability, SupportLevel
 from antar.backends.mock.backend import MockBackend
 from antar.backends.registry import build_backends
 from antar.config.settings import Settings
-from antar.core.errors import CapabilityNotSupportedError, ModelNotFoundError
+from antar.core.errors import (
+    BackendUnavailableError,
+    ModelNotFoundError,
+)
 from antar.core.types import Modality
 from antar.inference.types import ChatMessage, ChatRequest, GenerationSettings
 from antar.models.inventory import collect_inventory
@@ -87,16 +90,16 @@ def test_amd_cloud_is_not_configured_without_profile() -> None:
     assert status.availability is Availability.NOT_CONFIGURED
 
 
-def test_amd_cloud_with_profile_reports_not_implemented_and_refuses_inference() -> None:
+def test_amd_cloud_with_only_an_ssh_host_has_no_endpoint_and_refuses_inference() -> None:
     profile = AmdCloudProfile(name="lab", ssh_host="gpu.example.com", ssh_user="ubuntu")
     backend = AmdCloudBackend(profile)
 
     status = asyncio.run(backend.status())
 
-    assert status.availability is Availability.NOT_IMPLEMENTED
-    assert status.endpoint == "ssh://ubuntu@gpu.example.com:22"
-    assert all(c.support is SupportLevel.PLANNED for c in backend.capabilities())
-    with pytest.raises(CapabilityNotSupportedError):
+    assert status.availability is Availability.NOT_CONFIGURED
+    assert status.endpoint is None
+    assert asyncio.run(backend.list_models()) == ()
+    with pytest.raises(BackendUnavailableError, match="No cloud endpoint"):
         asyncio.run(backend.chat(_request()))
 
 

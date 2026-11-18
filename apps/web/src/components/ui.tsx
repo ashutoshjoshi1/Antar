@@ -1,7 +1,71 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import type { Availability } from "../lib/types";
+import { UNAVAILABLE } from "../lib/format";
+import type { Availability, ExecutionLocation } from "../lib/types";
+
+const LOCATIONS: Record<ExecutionLocation, { label: string; dot: string; text: string }> = {
+  local: { label: "Local", dot: "bg-local", text: "text-local" },
+  cloud: { label: "Cloud", dot: "bg-cloud", text: "text-cloud" },
+  mock: { label: "Simulated", dot: "bg-warn", text: "text-warn" },
+};
+
+interface LocationBadgeProps {
+  location: ExecutionLocation | null | undefined;
+  /** Who serves the model there, e.g. "lemonade" or "vllm". */
+  detail?: string | null;
+}
+
+/** Where something runs. Lemon is local and periwinkle is cloud, here and everywhere else. */
+export function LocationBadge({ location, detail }: LocationBadgeProps) {
+  if (!location) {
+    return <span className="text-sm whitespace-nowrap text-faint">Location not reported</span>;
+  }
+  const style = LOCATIONS[location];
+  return (
+    <span className="inline-flex items-center gap-2 text-sm whitespace-nowrap">
+      <span aria-hidden className={`size-2 rounded-full ${style.dot}`} />
+      <span className={style.text}>{style.label}</span>
+      {detail && <span className="text-muted">{detail}</span>}
+    </span>
+  );
+}
+
+/** A formatted value, dimmed when the source did not report it. */
+export function Value({ children }: { children: string }) {
+  return <span className={children === UNAVAILABLE ? "text-faint" : undefined}>{children}</span>;
+}
+
+interface NoticeProps {
+  tone?: "warn" | "down" | "plain";
+  title?: string;
+  children: ReactNode;
+  role?: "note" | "alert" | "status";
+}
+
+const NOTICE_TONES = {
+  warn: { box: "border-warn/50 bg-warn/5", title: "text-warn" },
+  down: { box: "border-down/50 bg-down/5", title: "text-down" },
+  plain: { box: "border-line bg-ground/50", title: "text-ink" },
+};
+
+/** A boxed message that has to be read: a caveat, a warning, or a failure. */
+export function Notice({ tone = "warn", title, children, role = "note" }: NoticeProps) {
+  const style = NOTICE_TONES[tone];
+  return (
+    <div role={role} className={`rounded-md border px-4 py-3 text-sm ${style.box}`}>
+      {title && <p className={`font-medium ${style.title}`}>{title}</p>}
+      <div className={`max-w-[80ch] text-muted ${title ? "mt-1" : ""}`}>{children}</div>
+    </div>
+  );
+}
+
+export const buttonClass =
+  "rounded-md border border-line px-3 py-1.5 text-sm transition-colors hover:border-muted active:bg-raised disabled:cursor-not-allowed disabled:opacity-50";
+export const primaryButtonClass =
+  "rounded-md bg-ink px-4 py-2 text-sm font-medium text-ground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
+export const fieldClass =
+  "w-full rounded-md border border-line bg-ground px-3 py-2 text-sm placeholder:text-faint";
 
 interface PageHeaderProps {
   title: string;

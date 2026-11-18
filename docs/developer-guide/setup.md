@@ -55,6 +55,19 @@ skip themselves when no suitable model is downloaded, and never download anythin
 uv run pytest -m lemonade_live -v
 ```
 
+The cloud path has its own opt-in tests against a real vLLM endpoint on an AMD GPU host.
+They use whatever `ANTAR_CLOUD__BASE_URL` points at, send a few short requests to a server
+that is already running, and start and stop nothing. They use paid instance time, so run
+them only when you are authorized to:
+
+```bash
+uv run pytest -m amd_live -s
+```
+
+In ordinary tests, vLLM is an `httpx.MockTransport` (`FakeVllm` in `tests/conftest.py`) and
+SSH is a `RemoteRunner` fake (`FakeRunner`). The `amd-smi` documents in the tests are
+synthetic and say so.
+
 Say which live tests you ran, and on what hardware, in the pull request. A skipped live
 test is not a passed one.
 

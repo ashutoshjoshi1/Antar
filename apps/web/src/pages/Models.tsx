@@ -1,40 +1,12 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PageHeader, Panel, QueryView, StatusPill, Tag } from "../components/ui";
+import { ModelFilterBar } from "../components/models/ModelFilterBar";
+import { LocationBadge, PageHeader, Panel, QueryView, StatusPill, Tag } from "../components/ui";
 import { useDownloads, useModelAction, useModels } from "../lib/api";
-import { formatBytes, titleCase } from "../lib/format";
-import { MODALITIES } from "../lib/types";
-import type { DownloadJob, Modality, ModelInventory, ModelSpec } from "../lib/types";
-
-interface Filters {
-  modality: Modality | null;
-  search: string;
-  downloadedOnly: boolean;
-}
-
-export function filterModels(models: ModelSpec[], filters: Filters): ModelSpec[] {
-  const needle = filters.search.trim().toLowerCase();
-  const rank = (model: ModelSpec) => (model.loaded ? 0 : model.downloaded ? 1 : 2);
-  return [...models].sort((a, b) => rank(a) - rank(b)).filter(
-    (model) =>
-      (!filters.modality || model.modalities.includes(filters.modality)) &&
-      (!filters.downloadedOnly || model.downloaded === true) &&
-      (!needle ||
-        model.id.toLowerCase().includes(needle) ||
-        model.labels.some((label) => label.toLowerCase().includes(needle))),
-  );
-}
-
-function isModality(value: string | null): value is Modality {
-  return MODALITIES.some((modality) => modality === value);
-}
-
-function chipClass(active: boolean): string {
-  return `rounded-full border px-3 py-1 text-sm transition-colors duration-150 ${
-    active ? "border-local bg-local/10 text-ink" : "border-line text-muted hover:border-muted hover:text-ink"
-  }`;
-}
+import { formatBytes, formatParameters, titleCase } from "../lib/format";
+import { filterModels, isRunning, modelKey, parseFilters } from "../lib/models";
+import type { DownloadJob, ModelInventory, ModelSpec } from "../lib/types";
 
 const actionClass =
   "rounded border border-line px-2 py-1 text-xs whitespace-nowrap transition-colors hover:border-muted disabled:cursor-not-allowed disabled:opacity-50";
@@ -50,6 +22,16 @@ function ModelActions({ model, download }: ModelRowProps) {
   const busy = action.isPending;
 
   if (model.simulated) return null;
+  if (model.location === "cloud") {
+    // The cloud server serves what it was started with; there is nothing to load or fetch from here.
+    return (
+      <span className="block max-w-44 text-2xs text-faint">
+        {model.backend === "amd_cloud"
+          ? "Served by vLLM as it was started. No load, unload, or download from here."
+          : "Routed to a cloud provider. Nothing to load or download."}
+      </span>
+    );
+  }
   if (download && !download.complete) {
     return (
       <span className="tabular text-xs text-muted">
@@ -101,10 +83,33 @@ function ModelActions({ model, download }: ModelRowProps) {
   );
 }
 
+function ModelState({ model }: { model: ModelSpec }) {
+  if (model.simulated) return <Tag tone="warn">Simulated</Tag>;
+  if (isRunning(model)) {
+    return <span className={model.location === "cloud" ? "text-cloud" : "text-local"}>Loaded</span>;
+  }
+  if (model.state === "configured") {
+    return (
+      <span className="text-faint" title="Declared in Antar's configuration; the server is not serving it.">
+        Configured, not served
+      </span>
+    );
+  }
+  if (model.downloaded) return <span className="text-ok">Downloaded</span>;
+  if (model.downloaded === false) return <span className="text-faint">In catalog</span>;
+  return <span className="text-faint">Unknown</span>;
+}
+
 function ModelRow({ model, download }: ModelRowProps) {
   const capabilities = model.labels.filter((label) =>
     ["reasoning", "tool-calling", "vision", "coding"].includes(label),
   );
+  const parameters = formatParameters(model.parameter_count);
+  const facts = [
+    model.family && `Family ${model.family}`,
+    model.license && `License ${model.license}`,
+    model.revision && `Revision ${model.revision.slice(0, 12)}`,
+  ].filter(Boolean);
   return (
     <tr className="align-top hover:bg-raised/40">
       <td className="border-t border-line py-2.5 pr-4 pl-5">
@@ -112,6 +117,7 @@ function ModelRow({ model, download }: ModelRowProps) {
         {model.checkpoint && (
           <span className="mt-0.5 block font-mono text-2xs break-all text-faint">{model.checkpoint}</span>
         )}
+        {facts.length > 0 && <span className="mt-0.5 block text-2xs text-muted">{facts.join(" · ")}</span>}
         {capabilities.length > 0 && (
           <span className="mt-1 flex flex-wrap gap-1">
             {capabilities.map((label) => (
@@ -119,6 +125,12 @@ function ModelRow({ model, download }: ModelRowProps) {
             ))}
           </span>
         )}
+      </td>
+      <td className="border-t border-line py-2.5 pr-4">
+        <LocationBadge location={model.location} />
+        <span className="mt-0.5 block text-2xs text-faint">
+          {model.provider ? `${model.provider} via ${model.backend}` : model.backend}
+        </span>
       </td>
       <td className="border-t border-line py-2.5 pr-4">
         {model.modalities.length > 0 ? (
@@ -135,19 +147,17 @@ function ModelRow({ model, download }: ModelRowProps) {
       </td>
       <td className="tabular border-t border-line py-2.5 pr-4 text-right text-muted">
         {formatBytes(model.size_bytes)}
+        <span className="block text-2xs text-faint">
+          {parameters ? `${parameters} parameters` : "parameters unknown"}
+        </span>
+        {model.context_length !== null && (
+          <span className="block text-2xs text-faint">
+            {model.context_length.toLocaleString("en-US")} context
+          </span>
+        )}
       </td>
       <td className="border-t border-line py-2.5 pr-4">
-        {model.simulated ? (
-          <Tag tone="warn">Simulated</Tag>
-        ) : model.loaded ? (
-          <span className="text-local">Loaded</span>
-        ) : model.downloaded ? (
-          <span className="text-ok">Downloaded</span>
-        ) : model.downloaded === false ? (
-          <span className="text-faint">In catalog</span>
-        ) : (
-          <span className="text-faint">Unknown</span>
-        )}
+        <ModelState model={model} />
       </td>
       <td className="border-t border-line py-2.5 pr-5">
         <ModelActions model={model} download={download} />
@@ -158,12 +168,7 @@ function ModelRow({ model, download }: ModelRowProps) {
 
 function Inventory({ inventory }: { inventory: ModelInventory }) {
   const [params, setParams] = useSearchParams();
-  const modalityParam = params.get("modality");
-  const filters: Filters = {
-    modality: isModality(modalityParam) ? modalityParam : null,
-    search: params.get("q") ?? "",
-    downloadedOnly: params.get("downloaded") === "1",
-  };
+  const filters = parseFilters(params);
   const visible = filterModels(inventory.models, filters);
   const downloads = useDownloads();
 
@@ -190,39 +195,7 @@ function Inventory({ inventory }: { inventory: ModelInventory }) {
         ))}
       </ul>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button type="button" aria-pressed={!filters.modality} className={chipClass(!filters.modality)} onClick={() => setParam("modality", null)}>
-          All
-        </button>
-        {MODALITIES.map((modality) => (
-          <button
-            key={modality}
-            type="button"
-            aria-pressed={filters.modality === modality}
-            className={chipClass(filters.modality === modality)}
-            onClick={() => setParam("modality", filters.modality === modality ? null : modality)}
-          >
-            {titleCase(modality)}
-          </button>
-        ))}
-        <label className="ml-auto flex items-center gap-2 text-sm text-muted">
-          <input
-            type="checkbox"
-            className="accent-(--color-local)"
-            checked={filters.downloadedOnly}
-            onChange={(event) => setParam("downloaded", event.target.checked ? "1" : null)}
-          />
-          Downloaded only
-        </label>
-        <input
-          type="search"
-          aria-label="Search models"
-          placeholder="Search by name or label"
-          value={filters.search}
-          onChange={(event) => setParam("q", event.target.value || null)}
-          className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm placeholder:text-faint sm:w-60"
-        />
-      </div>
+      <ModelFilterBar filters={filters} sources={inventory.sources} onChange={setParam} />
 
       <Panel className="[&>div]:p-0">
         {visible.length === 0 ? (
@@ -231,12 +204,12 @@ function Inventory({ inventory }: { inventory: ModelInventory }) {
             Settings.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] border-separate border-spacing-0 text-sm">
-              <caption className="sr-only">Discovered models</caption>
+          <div className="relative overflow-x-auto">
+            <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm">
+              <caption className="sr-only">Local and cloud models</caption>
               <thead className="text-left text-muted">
                 <tr>
-                  {["Model", "Modalities", "Runtime"].map((heading, index) => (
+                  {["Model", "Runs on", "Modalities", "Runtime"].map((heading, index) => (
                     <th key={heading} scope="col" className={`py-3 pr-4 font-normal ${index === 0 ? "pl-5" : ""}`}>
                       {heading}
                     </th>
@@ -251,7 +224,7 @@ function Inventory({ inventory }: { inventory: ModelInventory }) {
               <tbody>
                 {visible.map((model) => (
                   <ModelRow
-                    key={`${model.backend}:${model.id}`}
+                    key={modelKey(model)}
                     model={model}
                     download={downloads.data?.find((job) => job.model === model.id)}
                   />
@@ -262,8 +235,10 @@ function Inventory({ inventory }: { inventory: ModelInventory }) {
         )}
       </Panel>
       <p className="mt-3 text-xs text-faint">
-        Showing {visible.length} of {inventory.models.length}. Sizes and labels are reported by the
-        backend; Antar does not estimate missing values. Downloads start only when you confirm one.
+        Showing {visible.length} of {inventory.models.length}. Sizes, parameter counts, and labels
+        come from the backend or the model's published metadata; Antar does not estimate missing
+        values, so a model without a published parameter count is listed under "Unknown size".
+        Downloads start only when you confirm one.
       </p>
     </>
   );
@@ -275,7 +250,7 @@ export function Models() {
     <>
       <PageHeader
         title="Models"
-        summary="Every model Lemonade offers, with what is downloaded and what is in memory. Load a downloaded model, or download one after confirming its size."
+        summary="Every model your backends offer, local and cloud, with where each one runs and whether it is in memory. Load or download a local model here; cloud models are served as their server was started."
       />
       <QueryView query={models}>{(data) => <Inventory inventory={data} />}</QueryView>
     </>

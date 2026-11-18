@@ -32,6 +32,8 @@ flowchart TB
         eval[evaluation.result]
         experiment[orchestration.experiment]
         manifest[deployment.manifest]
+        comparison[comparison.manager]
+        scoring[evaluation.scoring]
         registry[backends.registry]
         base[backends.base<br/>RuntimeBackend]
     end
@@ -41,6 +43,9 @@ flowchart TB
     inventory --> base
     registry --> base
     base --> lemonade[backends.lemonade] & amd[backends.amd_cloud] & mock[backends.mock]
+    api --> comparison
+    comparison --> bench
+    bench --> scoring
     job --> catalog
     bench --> eval --> catalog
     experiment --> eval & manifest & hardware
@@ -59,6 +64,7 @@ flowchart TB
 | `load_model()` / `unload_model()` | Optional. Must never download. |
 | `download_model()` / `downloads()` | Optional. Only called on an explicit user action. |
 | `model_processes()` | Optional. Process ids of loaded models, for telemetry. |
+| `gpu_sample()` | Optional. Device-level GPU readings for the machine the backend runs on. |
 
 Optional methods refuse by default, so a backend cannot appear to support something merely
 by existing. Methods for speech, image generation, and video will be added when the first
@@ -103,10 +109,27 @@ Two properties of Lemonade shape the adapter:
   `/v1/stats` describes the server's most recent request from any client, so it is shown
   only as a server-wide counter and never attributed to a request.
 
-**AMD cloud** (`backends/amd_cloud/`). `AmdCloudProfile` validates a user-declared remote
-host: SSH target, ROCm version, GPUs. The backend reports `not_configured` or
-`not_implemented` and never opens a connection. Host and user validation rejects values
-that could be interpreted as SSH options.
+**AMD cloud** (`backends/amd_cloud/`). An adapter for a self-hosted vLLM
+OpenAI-compatible server on AMD Instinct GPUs. `vllm.py` is the HTTP client; `backend.py`
+adapts it to `RuntimeBackend` and describes served models from Antar's catalog of verified
+model facts and the configuration. Text chat and image understanding are `supported`;
+speech, image generation, and video are `planned` and wait for specialized workers. It is
+implemented and tested against a stand-in server and **has not yet run against real
+hardware**.
+
+Three properties shape it:
+
+- *One trusted destination.* The endpoint comes from settings and must be loopback (the
+  near end of an SSH tunnel), or an explicitly trusted HTTPS host with an API key.
+- *The operator runs the machine.* Antar does not start vLLM or the VM. vLLM serves the one
+  model it was started with, so `load_model` only confirms it is being served.
+- *No per-response timings.* vLLM reports token counts only, so every duration for a cloud
+  request is measured by the Antar API, and backend-reported fields stay `None`.
+
+The same package holds the read-only side channel to the host over SSH: the preflight, the
+`amd-smi` GPU monitor, the memory feasibility estimate, and the operator's cost session.
+`AmdCloudProfile` validates the SSH target so it cannot be interpreted as SSH options.
+Details: [cloud execution](cloud-execution.md).
 
 **Mock** (`backends/mock/`). Deterministic simulated text generation for offline
 development. Every model and result carries `simulated=True`.
@@ -153,12 +176,33 @@ forwarded as data URLs. They are never written to disk.
 Statistics are computed over measured requests only. Cancelling stops the request in
 flight and saves a report with status `cancelled` containing what finished.
 
+### Scoring
+
+`antar/evaluation/scoring.py` compares a response with a reference answer by one of five
+fixed rules (exact, number, keywords, JSON fields, Python unit tests). A workload prompt may
+carry an `Expectation`; the runner scores such responses and the aggregates gain `scored`
+and `accuracy`. Prompts without one are reviewed by a person. Running model-written code is
+opt-in per run and is not a security sandbox.
+
+## Comparison
+
+`antar/comparison/` runs one local model and one cloud model through the same workloads:
+two ordinary benchmark runs, local first, plus GPU samples taken during the cloud side, the
+round-trip cost of the path, and the cloud time used. The report lines the sides up row by
+row with a scope and a "measured by" on each. It is explicitly not hardware-normalized.
+Benchmarks and comparisons share one `JobSlot`, so only one measuring job runs at a time.
+Methodology: [local versus cloud](../benchmarks/local-vs-cloud.md).
+
 ## Telemetry
 
 `antar/hardware/telemetry.py` samples CPU and memory with psutil and tries to read the
 memory of each loaded model's process. Whatever cannot be read is returned as an
 `Unavailable` entry carrying the reason, and benchmark reports copy that list into
 `missing_telemetry`.
+
+GPU readings for a remote host are a separate type, `antar/hardware/gpu.py`, filled by a
+backend's `gpu_sample()`. They are device-level and follow the same rule: a value that was
+not reported is `None` with the reason listed.
 
 ## Configuration
 
@@ -178,7 +222,8 @@ around them.
 
 Read endpoints from the foundation (`/health`, `/system`, `/backends`, `/models`,
 `/capabilities`, `/settings`, `/experiments`) plus model management, inference, telemetry,
-and benchmarks. The full list with request shapes is in [the API reference](../api.md).
+benchmarks, the cloud routes, and comparisons. The full list with request shapes is in
+[the API reference](../api.md).
 
 The API is unauthenticated and intended for localhost. CORS allows only the configured
 dashboard origins. Requests select a backend by name; there is no parameter anywhere that
@@ -202,6 +247,14 @@ the request to cancel. Replies are rendered as plain text, never as HTML.
 
 - No per-modality or per-technique subpackages until there is code to put in them.
 - No database: experiment records and benchmark reports are files.
-- No job queue: one benchmark runs at a time, in the API process.
-- No endpoints that change configuration: that is done in the environment or YAML.
+- No job queue: one benchmark or comparison runs at a time, in the API process.
+- No endpoints that change Antar's configuration: that is done in the environment or YAML.
+  Two endpoints write state outside it, both on an explicit action: `PUT /cloud/cost` writes
+  only the operator's cost session file (price, credit, instance times), and
+  `POST`/`DELETE /cloud/lemonade-provider` registers or removes Antar's endpoint in
+  Lemonade's cloud routing and requires `confirm`.
+- No provider API: Antar cannot start, stop, or bill a cloud machine, or see whether one
+  exists.
+- No remote command execution beyond fixed, read-only commands defined in code.
+- No LLM judge; see the comparison methodology for why.
 - No Markdown rendering of model output.

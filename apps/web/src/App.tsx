@@ -2,8 +2,11 @@ import { lazy, Suspense } from "react";
 import { Link, Route, Routes } from "react-router";
 
 import { AppShell } from "./components/AppShell";
+import { Cloud } from "./pages/Cloud";
+import { ComparisonLab } from "./pages/ComparisonLab";
 import { Deployments } from "./pages/Deployments";
 import { Hardware } from "./pages/Hardware";
+import { History } from "./pages/History";
 import { Models } from "./pages/Models";
 import { Optimization } from "./pages/Optimization";
 import { Overview } from "./pages/Overview";
@@ -44,6 +47,9 @@ export function App() {
             </Suspense>
           }
         />
+        <Route path="cloud" element={<Cloud />} />
+        <Route path="compare" element={<ComparisonLab />} />
+        <Route path="history" element={<History />} />
         <Route path="deployments" element={<Deployments />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />

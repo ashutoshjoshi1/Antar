@@ -6,17 +6,31 @@ import type {
   BenchmarkProgress,
   BenchmarkReport,
   Capabilities,
+  CloudSession,
+  CloudStatus,
+  ComparisonConfig,
+  ComparisonProgress,
+  ComparisonReport,
+  ComparisonSummary,
+  CostEstimate,
   DownloadJob,
   ExperimentRecord,
+  FeasibilityBody,
+  FeasibilityEstimate,
+  GpuTelemetry,
   HardwareProfile,
   Health,
+  KnownModel,
+  LemonadeProviderStatus,
   ModelInventory,
   ModelSpec,
+  PreflightReport,
   ReportSummary,
   SettingsView,
   Telemetry,
   Workload,
 } from "./types";
+import { gpuPollMs } from "./cloud";
 
 export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -217,3 +231,128 @@ export function useEvaluateRun() {
     onSuccess: (report) => client.setQueryData(["benchmark", report.id], report),
   });
 }
+
+const CLOUD = "/api/v1/cloud";
+const COST_REFRESH_MS = 30_000;
+
+export const useCloudStatus = () =>
+  useQuery({
+    queryKey: ["cloud-status"],
+    queryFn: () => fetchJson<CloudStatus>(`${CLOUD}/status`),
+    // Re-checked while the page is open, so a dropped tunnel or a finished model load shows up.
+    refetchInterval: STATUS_REFRESH_MS,
+  });
+
+/** Polls no faster than the server samples, and only while a component using it is mounted. */
+export const useCloudGpus = () =>
+  useQuery({
+    queryKey: ["cloud-gpus"],
+    queryFn: () => fetchJson<GpuTelemetry>(`${CLOUD}/gpus`),
+    refetchInterval: (query) => gpuPollMs(query.state.data),
+  });
+
+/** A slow, read-only SSH check. Runs only when the user asks for it. */
+export const usePreflight = () =>
+  useMutation({ mutationFn: () => sendJson<PreflightReport>(`${CLOUD}/preflight`, undefined) });
+
+export const useCloudCatalog = () =>
+  useQuery({
+    queryKey: ["cloud-catalog"],
+    queryFn: async () => (await fetchJson<{ models: KnownModel[] }>(`${CLOUD}/catalog`)).models,
+    staleTime: Infinity,
+  });
+
+export const useFeasibility = () =>
+  useMutation({
+    mutationFn: (body: FeasibilityBody) =>
+      sendJson<FeasibilityEstimate>(`${CLOUD}/feasibility`, body),
+  });
+
+export const useCloudCost = () =>
+  useQuery({
+    queryKey: ["cloud-cost"],
+    queryFn: () => fetchJson<CostEstimate>(`${CLOUD}/cost`),
+    // The server recomputes spend and warnings from its own clock.
+    refetchInterval: (query) => (query.state.data?.running ? COST_REFRESH_MS : false),
+  });
+
+export function useSetCloudCost() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (session: CloudSession) => sendJson<CostEstimate>(`${CLOUD}/cost`, session, "PUT"),
+    onSuccess: (estimate) => client.setQueryData(["cloud-cost"], estimate),
+  });
+}
+
+export const useLemonadeProvider = () =>
+  useQuery({
+    queryKey: ["lemonade-provider"],
+    queryFn: () => fetchJson<LemonadeProviderStatus>(`${CLOUD}/lemonade-provider`),
+  });
+
+/** Registers or removes Antar's endpoint in Lemonade's cloud routing. Registering needs confirmation. */
+export function useLemonadeProviderAction() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "register" | "remove") =>
+      action === "register"
+        ? sendJson<LemonadeProviderStatus>(`${CLOUD}/lemonade-provider`, { confirm: true })
+        : sendJson<LemonadeProviderStatus>(`${CLOUD}/lemonade-provider`, undefined, "DELETE"),
+    onSuccess: (status) => {
+      client.setQueryData(["lemonade-provider"], status);
+      // Lemonade lists a registered provider's models as its own.
+      void client.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+const COMPARISONS = "/api/v1/comparisons";
+
+interface ActiveComparison {
+  active: ComparisonProgress | null;
+}
+
+export const useComparisonHistory = () =>
+  useQuery({
+    queryKey: ["comparisons"],
+    queryFn: async () =>
+      (await fetchJson<{ comparisons: ComparisonSummary[] }>(COMPARISONS)).comparisons,
+  });
+
+export const useComparison = (id: string | null) =>
+  useQuery({
+    queryKey: ["comparison", id],
+    queryFn: () => fetchJson<ComparisonReport>(`${COMPARISONS}/${id}`),
+    enabled: id !== null,
+  });
+
+export const useActiveComparison = () =>
+  useQuery({
+    queryKey: ["comparison-active"],
+    queryFn: async () => (await fetchJson<ActiveComparison>(`${COMPARISONS}/active`)).active,
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? PROGRESS_REFRESH_MS : false,
+  });
+
+/** Starting keeps a paid instance busy, so the caller must have confirmed it. */
+export function useStartComparison() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (config: ComparisonConfig) =>
+      sendJson<ActiveComparison>(COMPARISONS, { config, confirm_cloud_usage: true }),
+    onSuccess: (data) => client.setQueryData(["comparison-active"], data.active),
+  });
+}
+
+export function useCancelComparison() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => sendJson<ActiveComparison>(`${COMPARISONS}/active/cancel`, {}),
+    onSuccess: (data) => client.setQueryData(["comparison-active"], data.active),
+  });
+}
+
+export type ExportFormat = "json" | "csv" | "md";
+
+export const comparisonExportUrl = (id: string, format: ExportFormat): string =>
+  `${API_BASE}${COMPARISONS}/${id}/export?format=${format}`;

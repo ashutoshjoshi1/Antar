@@ -20,7 +20,11 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from antar.backends.amd_cloud.config import AmdCloudProfile
+from antar.backends.amd_cloud.config import (
+    AmdCloudProfile,
+    CloudCostSettings,
+    CloudEndpointSettings,
+)
 from antar.backends.lemonade.client import DEFAULT_LEMONADE_BASE_URL
 from antar.inference.images import DEFAULT_MAX_IMAGE_BYTES
 
@@ -65,6 +69,8 @@ class StorageSettings(BaseModel):
     training_dir: Path = Path("data/training")
     benchmarks_dir: Path = Path("data/benchmarks")
     experiments_dir: Path = Path("data/experiments")
+    comparisons_dir: Path = Path("data/comparisons")
+    cloud_dir: Path = Path("data/cloud")
 
 
 class Settings(BaseSettings):
@@ -83,6 +89,8 @@ class Settings(BaseSettings):
     )
     lemonade: LemonadeSettings = LemonadeSettings()
     amd_cloud: AmdCloudProfile | None = None
+    cloud: CloudEndpointSettings | None = None
+    cloud_cost: CloudCostSettings = CloudCostSettings()
     storage: StorageSettings = StorageSettings()
 
     @classmethod

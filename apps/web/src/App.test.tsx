@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { SETTINGS } from "./test/fixtures";
 
 const RESPONSES: Record<string, unknown> = {
   "/health": { status: "ok", version: "0.1.0", time: "2026-01-01T00:00:00Z" },
@@ -23,12 +24,7 @@ const RESPONSES: Record<string, unknown> = {
   "/api/v1/models": { models: [], sources: [] },
   "/api/v1/capabilities": { modalities: [], techniques: [], backends: [] },
   "/api/v1/experiments": { experiments: [] },
-  "/api/v1/settings": {
-    config_file: "configs/antar.yaml", config_file_found: false, mock_backend_enabled: true,
-    lemonade: { base_url: "http://localhost:13305/v1", api_key_configured: false, timeout_seconds: 3 },
-    amd_cloud: null,
-    storage: { models_dir: "data/models", artifacts_dir: "data/artifacts", training_dir: "data/training", benchmarks_dir: "data/benchmarks", experiments_dir: "data/experiments" },
-  },
+  "/api/v1/settings": SETTINGS,
 };
 
 function renderApp(path: string, fetchImpl: typeof fetch) {

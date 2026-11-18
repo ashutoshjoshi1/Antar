@@ -10,9 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from antar.benchmarking.config import BenchmarkConfig
 from antar.benchmarking.workloads import Workload
+from antar.hardware.gpu import GpuSample
 from antar.hardware.profile import HardwareProfile
 from antar.hardware.telemetry import Unavailable
 from antar.inference.types import InferenceMetrics
+from antar.models.spec import ExecutionLocation
 
 SCHEMA_VERSION = 1
 ID_PATTERN = r"^[a-z0-9][a-z0-9_\-]{0,63}$"
@@ -38,7 +40,11 @@ class RunRecord(BaseModel):
     json_valid: bool | None = Field(
         default=None, description="Only for workloads that require JSON output."
     )
-    # Filled in by a person. Antar computes no quality score for free-text or vision answers.
+    # Set only for prompts that have a reference answer; see antar/evaluation/scoring.py.
+    score: float | None = Field(default=None, ge=0, le=1)
+    score_method: str | None = None
+    score_detail: str | None = None
+    # Filled in by a person. Free-text and descriptive answers get no automatic score.
     manual_score: int | None = Field(default=None, ge=1, le=5)
     manual_notes: str | None = Field(default=None, max_length=2000)
 
@@ -60,6 +66,17 @@ class Aggregate(BaseModel):
     first_chunk_ms_median: float | None = None
     output_tokens_mean: float | None = None
     json_valid_rate: float | None = None
+    scored: int = Field(default=0, ge=0, description="Measured responses that were auto-scored.")
+    accuracy: float | None = Field(
+        default=None, description="Mean automatic score over the scored responses, 0 to 1."
+    )
+    decode_tokens_per_second_median: float | None = Field(
+        default=None,
+        description=(
+            "Output tokens divided by the time after the first chunk, both seen by Antar. "
+            "Computed the same way for every backend, so it is the rate to compare across them."
+        ),
+    )
 
 
 class ColdStart(BaseModel):
@@ -77,6 +94,9 @@ class ModelSnapshot(BaseModel):
     quantization: str | None = None
     runtime: str | None = None
     size_bytes: int | None = None
+    revision: str | None = None
+    parameter_count: int | None = None
+    context_length: int | None = None
 
 
 class BenchmarkReport(BaseModel):
@@ -92,7 +112,13 @@ class BenchmarkReport(BaseModel):
     backend: str
     backend_version: str | None = None
     model: ModelSnapshot
-    hardware: HardwareProfile
+    hardware: HardwareProfile = Field(description="The machine Antar itself ran on.")
+    execution: ExecutionLocation | None = Field(
+        default=None, description="Where the model ran. None in reports from before this field."
+    )
+    remote_gpus: GpuSample | None = Field(
+        default=None, description="GPUs of the remote host at the start of a cloud run."
+    )
     config: BenchmarkConfig
     workloads: tuple[Workload, ...]
     cold_start: ColdStart | None = None
@@ -121,6 +147,17 @@ def _median(values: Sequence[float]) -> float | None:
     return statistics.median(values) if values else None
 
 
+def decode_tokens_per_second(metrics: InferenceMetrics) -> float | None:
+    """Generation rate on Antar's own clock: output tokens over the time after the first chunk."""
+    if metrics.completion_tokens is None or metrics.first_chunk_ms is None:
+        return None
+    decode_ms = metrics.latency_ms - metrics.first_chunk_ms
+    # A single-chunk response has no measurable decode phase.
+    if decode_ms <= 0 or metrics.completion_tokens < 2:
+        return None
+    return metrics.completion_tokens / (decode_ms / 1000)
+
+
 def aggregate(workload: str, runs: Iterable[RunRecord]) -> Aggregate:
     """Summarize measured runs. Cold and warm-up runs are excluded by design."""
     measured = [run for run in runs if run.phase == "measured"]
@@ -133,6 +170,8 @@ def aggregate(workload: str, runs: Iterable[RunRecord]) -> Aggregate:
         float(item.completion_tokens) for item in metrics if item.completion_tokens is not None
     ]
     checked = [run.json_valid for run in succeeded if run.json_valid is not None]
+    scores = [run.score for run in succeeded if run.score is not None]
+    decode = [rate for item in metrics if (rate := decode_tokens_per_second(item)) is not None]
     failed = len(measured) - len(succeeded)
     return Aggregate(
         workload=workload,
@@ -147,6 +186,9 @@ def aggregate(workload: str, runs: Iterable[RunRecord]) -> Aggregate:
         first_chunk_ms_median=_median(first_chunks),
         output_tokens_mean=_mean(outputs),
         json_valid_rate=sum(checked) / len(checked) if checked else None,
+        scored=len(scores),
+        accuracy=_mean(scores),
+        decode_tokens_per_second_median=_median(decode),
     )
 
 

@@ -59,7 +59,7 @@ def require_idle(manager: BenchmarksDep) -> None:
     """Keep other work off the backend while a benchmark is measuring it."""
     if manager.is_running:
         raise BenchmarkBusyError(
-            "A benchmark is running. Wait for it to finish, or cancel it on the Benchmarks page."
+            "A benchmark or comparison is running. Wait for it to finish, or cancel it."
         )
 
 

@@ -8,7 +8,8 @@ ssh_user: ubuntu
 ssh_port: 22
 ssh_key_path: ~/.ssh/id_ed25519
 remote_workdir: ~/antar
-rocm_version: "6.4"   # the version installed on YOUR host
+rocm_version: "7.1"   # the version installed on YOUR host
+gpu_poll_interval_seconds: 10
 gpus:
   - name: AMD Instinct GPU   # replace with the device your instance reports
     count: 1

@@ -1,10 +1,11 @@
 import { useState } from "react";
 
 import { useStartBenchmark } from "../../lib/api";
+import { groupByLocation, modelKey } from "../../lib/models";
 import type { BenchmarkConfig, LoadPolicy, ModelSpec, Workload } from "../../lib/types";
-import { Tag } from "../ui";
-
-const fieldClass = "w-full rounded-md border border-line bg-ground px-3 py-2 text-sm";
+import { CloudConfirm } from "../CloudConfirm";
+import { fieldClass, LocationBadge } from "../ui";
+import { runnableWorkloads, WorkloadPicker } from "./WorkloadPicker";
 
 interface BenchmarkFormProps {
   models: ModelSpec[];
@@ -31,7 +32,9 @@ export function requestCount(
 
 export function BenchmarkForm({ models, workloads, running }: BenchmarkFormProps) {
   const start = useStartBenchmark();
-  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [selectedKey, setSelectedKey] = useState(models[0] ? modelKey(models[0]) : "");
+  const [allowCode, setAllowCode] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [selected, setSelected] = useState<readonly string[]>(["general_qa"]);
   const [warmup, setWarmup] = useState(1);
   const [runs, setRuns] = useState(3);
@@ -39,15 +42,19 @@ export function BenchmarkForm({ models, workloads, running }: BenchmarkFormProps
   const [temperature, setTemperature] = useState(0);
   const [policy, setPolicy] = useState<LoadPolicy>("keep");
 
-  const model = models.find((candidate) => candidate.id === modelId) ?? models[0];
+  const model = models.find((candidate) => modelKey(candidate) === selectedKey) ?? models[0];
+  const cloud = model?.location === "cloud";
   const hasVision = model?.modalities.includes("vision") ?? false;
-  const usable = selected.filter(
-    (id) => hasVision || workloads.find((workload) => workload.id === id)?.modality !== "vision",
-  );
-  const total = requestCount(workloads, usable, warmup, runs, policy);
+  const usable = runnableWorkloads(workloads, selected, hasVision, allowCode);
+  const total = requestCount(workloads, usable, warmup, runs, cloud ? "keep" : policy);
 
-  const submit = () => {
+  const submit = (confirmedCloud: boolean) => {
     if (!model || usable.length === 0) return;
+    // A cloud run uses paid instance time, so it waits for an explicit confirmation.
+    if (cloud && !confirmedCloud) {
+      setConfirming(true);
+      return;
+    }
     const config: BenchmarkConfig = {
       name: `${model.id} baseline`,
       model: { id: model.id },
@@ -59,9 +66,13 @@ export function BenchmarkForm({ models, workloads, running }: BenchmarkFormProps
       temperature,
       seed: 42,
       enable_thinking: false,
-      load_policy: policy,
+      // A cloud server serves what it was started with; Antar cannot reload it.
+      load_policy: cloud ? "keep" : policy,
+      allow_code_execution: allowCode && usable.includes("code_tests"),
+      // Never sent for a local model.
+      ...(cloud && { confirm_cloud_usage: true }),
     };
-    start.mutate(config);
+    start.mutate(config, { onSettled: () => setConfirming(false) });
   };
 
   return (
@@ -69,60 +80,49 @@ export function BenchmarkForm({ models, workloads, running }: BenchmarkFormProps
       className="space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
-        submit();
+        submit(false);
       }}
     >
       <div>
         <label htmlFor="bench-model" className="mb-1.5 block text-sm">
           Model
         </label>
-        <select id="bench-model" className={fieldClass} value={model?.id ?? ""} onChange={(event) => setModelId(event.target.value)}>
-          {models.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.id}
-              {candidate.quantization ? ` (${candidate.quantization})` : ""}
-            </option>
+        <select
+          id="bench-model"
+          className={fieldClass}
+          value={model ? modelKey(model) : ""}
+          onChange={(event) => {
+            setSelectedKey(event.target.value);
+            setConfirming(false);
+          }}
+        >
+          {groupByLocation(models).map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.models.map((candidate) => (
+                <option key={modelKey(candidate)} value={modelKey(candidate)}>
+                  {candidate.id}
+                  {candidate.quantization ? ` (${candidate.quantization})` : ""}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
+        {model && (
+          <p className="mt-2">
+            <LocationBadge location={model.location} detail={model.provider} />
+          </p>
+        )}
       </div>
 
-      <fieldset>
-        <legend className="mb-1.5 text-sm">Workloads</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {workloads.map((workload) => {
-            const blocked = workload.modality === "vision" && !hasVision;
-            return (
-              <label
-                key={workload.id}
-                className={`flex gap-3 rounded-md border border-line px-3 py-2.5 ${blocked ? "opacity-50" : "hover:border-muted"}`}
-              >
-                <input
-                  type="checkbox"
-                  className="mt-1 accent-(--color-local)"
-                  disabled={blocked}
-                  checked={!blocked && selected.includes(workload.id)}
-                  onChange={(event) =>
-                    setSelected(
-                      event.target.checked
-                        ? [...selected, workload.id]
-                        : selected.filter((id) => id !== workload.id),
-                    )
-                  }
-                />
-                <span className="min-w-0">
-                  <span className="flex flex-wrap items-center gap-2 text-sm">
-                    {workload.name}
-                    {blocked && <Tag>Needs a vision model</Tag>}
-                  </span>
-                  <span className="mt-0.5 block text-xs text-muted">
-                    {workload.prompts.length} prompts. {workload.description}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
+      <WorkloadPicker
+        workloads={workloads}
+        selected={selected}
+        onChange={setSelected}
+        visionAvailable={hasVision}
+        visionReason="Needs a vision model"
+        allowCode={allowCode}
+        onAllowCode={setAllowCode}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
@@ -170,22 +170,37 @@ export function BenchmarkForm({ models, workloads, running }: BenchmarkFormProps
             ] as const
           ).map(([value, label, help]) => (
             <label key={value} className="flex items-baseline gap-2">
-              <input type="radio" name="policy" className="accent-(--color-local)" checked={policy === value} onChange={() => setPolicy(value)} />
+              <input type="radio" name="policy" className="accent-(--color-local)" disabled={cloud && value === "reload"} checked={cloud ? value === "keep" : policy === value} onChange={() => setPolicy(value)} />
               <span>
                 {label} <span className="text-muted">{help}</span>
               </span>
             </label>
           ))}
         </div>
+        {cloud && (
+          <p className="mt-1.5 text-xs text-muted">
+            Reloading is not offered for cloud models: the server keeps the model it was started with.
+          </p>
+        )}
       </fieldset>
+
+      {confirming && cloud && (
+        <CloudConfirm
+          subject="This benchmark"
+          detail={`${total} requests to ${model?.id ?? "the cloud model"}, one at a time.`}
+          pending={start.isPending}
+          onConfirm={() => submit(true)}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-4">
         <button
           type="submit"
-          disabled={running || start.isPending || usable.length === 0 || !model}
-          className="rounded-md bg-local px-4 py-2 text-sm font-medium text-ground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={running || start.isPending || confirming || usable.length === 0 || !model}
+          className={`rounded-md px-4 py-2 text-sm font-medium text-ground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 ${cloud ? "bg-cloud" : "bg-local"}`}
         >
-          {running ? "Benchmark running" : "Start benchmark"}
+          {running ? "Benchmark running" : cloud ? "Start benchmark…" : "Start benchmark"}
         </button>
         <p className="text-sm text-muted">
           {usable.length === 0

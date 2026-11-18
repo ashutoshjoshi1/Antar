@@ -20,6 +20,15 @@ against a running Lemonade v2026.46.2 on macOS on 2026-11-16:
 * ``POST /v1/pull`` with ``stream: true, subscribe: false`` starts a
   server-owned download that ``GET /v1/downloads`` reports on.
 * Optional auth: ``Authorization: Bearer <LEMONADE_API_KEY>``.
+* Cloud providers (experimental in Lemonade; guide/configuration/cloud and the
+  Lemonade API reference, exercised against v2026.46.2 on 2026-11-18 with a
+  stand-in OpenAI-compatible server): ``POST /v1/install`` with
+  ``{"backend": "cloud", "provider", "base_url"}`` registers one,
+  ``POST /v1/cloud/auth`` stores a key in Lemonade's memory (an ``http://``
+  provider needs ``allow_insecure_http: true``), ``POST /v1/uninstall``
+  removes it, and ``GET /v1/system-info`` lists them under ``cloud.providers``.
+  Discovered models appear as ``<provider>.<upstream id>`` with
+  ``recipe: "cloud"`` and are relayed through ``/v1/chat/completions``.
 
 Only the fields Antar uses are modelled; unknown fields are ignored so that
 additive upstream changes do not break the adapter.
@@ -35,13 +44,25 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from antar.core.errors import BackendRequestError, BackendUnavailableError, ModelNotFoundError
-from antar.inference.types import ChatDelta, ChatMessage, ChatRequest, InferenceMetrics
+from antar.inference.openai import (
+    as_dict as _dict,
+)
+from antar.inference.openai import (
+    as_float as _as_float,
+)
+from antar.inference.openai import (
+    as_int as _as_int,
+)
+from antar.inference.openai import (
+    error_message,
+    parse_sse_data,
+    to_openai_message,
+)
+from antar.inference.types import ChatDelta, ChatRequest, InferenceMetrics
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LEMONADE_BASE_URL = "http://localhost:13305/v1"
-
-_SSE_DONE = "[DONE]"
 
 
 class LemonadeLoadedModel(BaseModel):
@@ -75,6 +96,9 @@ class LemonadeModel(BaseModel):
     downloaded: bool | None = None
     labels: tuple[str, ...] = ()
     max_context_window: int | None = None
+    cloud_provider: str | None = Field(
+        default=None, description="Set for models routed to a registered cloud provider."
+    )
 
 
 class LemonadeLiveStats(BaseModel):
@@ -108,6 +132,20 @@ class LemonadeDownload(BaseModel):
     complete: bool = False
 
 
+class LemonadeCloudProvider(BaseModel):
+    """A cloud provider registered in Lemonade. Keys are never part of this."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    name: str
+    base_url: str | None = None
+    env_var_set: bool | None = None
+    runtime_key_set: bool | None = None
+    models_discovered: int | None = None
+    allow_insecure_http: bool | None = None
+    warnings: tuple[str, ...] = ()
+
+
 class LemonadeCompletion(BaseModel):
     """The parts of a finished chat completion that Antar uses."""
 
@@ -117,23 +155,6 @@ class LemonadeCompletion(BaseModel):
     reasoning: str | None
     finish_reason: str | None
     metrics: InferenceMetrics
-
-
-def to_openai_message(message: ChatMessage) -> dict[str, Any]:
-    """Render a message in the OpenAI format Lemonade documents, images as data URLs."""
-    if not message.images:
-        return {"role": message.role, "content": message.content}
-    parts: list[dict[str, Any]] = []
-    if message.content:
-        parts.append({"type": "text", "text": message.content})
-    parts.extend(
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:{image.media_type};base64,{image.data_base64}"},
-        }
-        for image in message.images
-    )
-    return {"role": message.role, "content": parts}
 
 
 def build_chat_payload(request: ChatRequest, *, stream: bool) -> dict[str, Any]:
@@ -156,20 +177,6 @@ def build_chat_payload(request: ChatRequest, *, stream: bool) -> dict[str, Any]:
     return payload
 
 
-def _dict(value: object) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _as_int(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-
-
-def _as_float(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
-        return None
-    return float(value)
-
-
 def build_metrics(
     *, usage: object, timings: object, latency_ms: float, first_chunk_ms: float | None
 ) -> InferenceMetrics:
@@ -187,32 +194,6 @@ def build_metrics(
         generation_ms=_as_float(timing_map.get("predicted_ms")),
         tokens_per_second=_as_float(timing_map.get("predicted_per_second")),
     )
-
-
-def parse_sse_data(line: str) -> dict[str, Any] | None:
-    """Decode one SSE line. Returns None for anything that is not a JSON data event."""
-    if not line.startswith("data:"):
-        return None
-    data = line[len("data:") :].strip()
-    if not data or data == _SSE_DONE:
-        return None
-    try:
-        decoded = json.loads(data)
-    except json.JSONDecodeError:
-        logger.warning("Ignoring undecodable stream chunk from Lemonade")
-        return None
-    return decoded if isinstance(decoded, dict) else None
-
-
-def error_message(body: object, fallback: str) -> tuple[str, str | None]:
-    """Extract (message, code) from Lemonade's two documented error shapes."""
-    error = body.get("error") if isinstance(body, dict) else None
-    if isinstance(error, str):
-        return error, None
-    if isinstance(error, dict) and isinstance(error.get("message"), str):
-        code = error.get("code")
-        return error["message"], code if isinstance(code, str) else None
-    return fallback, None
 
 
 class LemonadeClient:
@@ -349,6 +330,52 @@ class LemonadeClient:
             except ValidationError:
                 logger.warning("Skipping malformed Lemonade download entry")
         return tuple(jobs)
+
+    async def cloud_providers(self) -> tuple[LemonadeCloudProvider, ...] | None:
+        """Registered cloud providers, or None if this Lemonade has no cloud routing."""
+        try:
+            body = await self._request("GET", "/system-info")
+        except (BackendRequestError, ModelNotFoundError):
+            # The server answered but has no such endpoint: an older Lemonade.
+            return None
+        cloud = body.get("cloud") if isinstance(body, dict) else None
+        if not isinstance(cloud, dict) or not isinstance(cloud.get("providers"), list):
+            return None
+        providers: list[LemonadeCloudProvider] = []
+        for entry in cloud["providers"]:
+            try:
+                providers.append(LemonadeCloudProvider.model_validate(entry))
+            except ValidationError:
+                logger.warning("Skipping malformed Lemonade cloud provider entry")
+        return tuple(providers)
+
+    async def install_cloud_provider(self, provider: str, base_url: str) -> None:
+        await self._request(
+            "POST",
+            "/install",
+            payload={"backend": "cloud", "provider": provider, "base_url": base_url},
+            read_timeout=self._load_timeout,
+        )
+
+    async def set_cloud_provider_key(
+        self, provider: str, api_key: str, *, allow_insecure_http: bool
+    ) -> None:
+        """Hand Lemonade a key for a provider. Lemonade keeps it in memory only."""
+        await self._request(
+            "POST",
+            "/cloud/auth",
+            payload={
+                "provider": provider,
+                "api_key": api_key,
+                "allow_insecure_http": allow_insecure_http,
+            },
+            read_timeout=self._load_timeout,
+        )
+
+    async def uninstall_cloud_provider(self, provider: str) -> None:
+        await self._request(
+            "POST", "/uninstall", payload={"backend": "cloud", "provider": provider}
+        )
 
     async def chat(self, request: ChatRequest) -> LemonadeCompletion:
         started = time.perf_counter()

@@ -7,11 +7,7 @@ import httpx
 import pytest
 
 from antar.backends.lemonade.backend import LemonadeBackend, parse_quantization
-from antar.backends.lemonade.client import (
-    LemonadeClient,
-    build_chat_payload,
-    parse_sse_data,
-)
+from antar.backends.lemonade.client import LemonadeClient, build_chat_payload
 from antar.core.errors import (
     BackendRequestError,
     BackendUnavailableError,
@@ -19,6 +15,7 @@ from antar.core.errors import (
     ModelNotDownloadedError,
     ModelNotFoundError,
 )
+from antar.inference.openai import parse_sse_data
 from antar.inference.types import (
     ChatDone,
     ChatEvent,

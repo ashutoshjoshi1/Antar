@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from antar.core.errors import CapabilityNotSupportedError
 from antar.core.types import Modality, Task, utc_now
+from antar.hardware.gpu import GpuSample
 from antar.inference.types import ChatEvent, ChatRequest, ChatResult
 from antar.models.spec import ModelSpec
 
@@ -129,3 +130,11 @@ class RuntimeBackend(ABC):
     async def model_processes(self) -> tuple[tuple[str, int | None], ...]:
         """(model id, process id) for each model in memory, where the backend reports it."""
         return ()
+
+    async def gpu_sample(self) -> GpuSample | None:
+        """GPU readings for the machine this backend runs on, if the backend can read them.
+
+        ``None`` means the backend has no way to ask. A backend that can ask but
+        got no answer returns a sample whose ``unavailable`` list says why.
+        """
+        return None

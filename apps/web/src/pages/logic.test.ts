@@ -1,38 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { summarize } from "../components/CapabilityMatrix";
-import type { BackendCapabilities, ModelSpec } from "../lib/types";
-import { filterModels } from "./Models";
+import { filterModels, NO_FILTERS } from "../lib/models";
+import type { BackendCapabilities } from "../lib/types";
+import { model } from "../test/fixtures";
 import { buildJobPreview } from "./Optimization";
-
-function model(overrides: Partial<ModelSpec>): ModelSpec {
-  return {
-    id: "model",
-    name: "model",
-    backend: "lemonade",
-    modalities: ["text"],
-    tasks: ["chat"],
-    revision: null,
-    checkpoint: null,
-    runtime: null,
-    size_bytes: null,
-    license: null,
-    downloaded: false,
-    loaded: null,
-    quantization: null,
-    context_length: null,
-    labels: [],
-    simulated: false,
-    ...overrides,
-  };
-}
 
 const MODELS = [
   model({ id: "Qwen3-GGUF", labels: ["reasoning"], downloaded: true }),
-  model({ id: "Gemma-Vision", modalities: ["text", "vision"] }),
-  model({ id: "Whisper-Tiny", modalities: ["speech"], labels: ["transcription"] }),
+  model({ id: "Gemma-Vision", modalities: ["text", "vision"], labels: [], downloaded: false, loaded: false, state: "discovered" }),
+  model({ id: "Whisper-Tiny", modalities: ["speech"], labels: ["transcription"], downloaded: false, loaded: false, state: "discovered" }),
 ];
-const NO_FILTER = { modality: null, search: "", downloadedOnly: false };
+const NO_FILTER = NO_FILTERS;
 
 describe("filterModels", () => {
   it("returns everything with no filters", () => {

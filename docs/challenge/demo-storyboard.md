@@ -2,7 +2,8 @@
 
 > A plan for a short demo video. Scenes 1–3 can be recorded with what exists today.
 > Scenes 4–7 depend on roadmap milestones M1–M4 and **must not be recorded with mocked or
-> invented numbers**. If a scene's feature is not built, cut the scene.
+> invented numbers**. If a scene's feature is not built, cut the scene. The cloud scenes
+> have their own script: [Phase 2 demo](phase2-demo.md).
 
 Target length: about three minutes. Screen recording with voiceover.
 

@@ -32,6 +32,8 @@ CSV_COLUMNS = (
     "tokens_per_second",
     "finish_reason",
     "json_valid",
+    "score",
+    "score_method",
     "manual_score",
     "manual_notes",
 )
@@ -69,6 +71,15 @@ def summarize(report: BenchmarkReport) -> ReportSummary:
     )
 
 
+def csv_cell(value: object) -> object:
+    """Empty for unavailable values; text that a spreadsheet would run as a formula is quoted."""
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
+
+
 def to_csv(report: BenchmarkReport) -> str:
     """One row per request. Unavailable values are empty cells, never zero."""
     buffer = io.StringIO()
@@ -77,7 +88,7 @@ def to_csv(report: BenchmarkReport) -> str:
     for run in report.runs:
         row = run.model_dump(exclude={"metrics", "response"})
         row.update(run.metrics.model_dump() if run.metrics else {})
-        writer.writerow({key: "" if value is None else value for key, value in row.items()})
+        writer.writerow({key: csv_cell(value) for key, value in row.items()})
     return buffer.getvalue()
 
 

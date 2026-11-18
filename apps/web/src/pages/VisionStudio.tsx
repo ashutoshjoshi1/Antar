@@ -6,7 +6,7 @@ export function VisionStudio() {
     <>
       <PageHeader
         title="Vision"
-        summary="Ask a local vision-language model about an image. Small models misread text and fine detail often, so check answers that matter."
+        summary="Ask a vision-language model, local or cloud, about an image. Small models misread text and fine detail often, so check answers that matter."
       />
       <ChatWorkspace mode="vision" />
     </>
